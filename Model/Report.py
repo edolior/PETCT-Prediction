@@ -1,9 +1,8 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
 import numpy as np
 import os
-from sklearn.metrics import confusion_matrix, classification_report
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 # ---------------------------------------------------------------------------------------
@@ -23,6 +22,9 @@ class Report:
     _model = None
 
     def __init__(self, r_model):
+        """
+        Report Constructor
+        """
         self._model = r_model
 
         self.p_project = os.path.dirname(os.path.dirname(__file__))
@@ -36,6 +38,11 @@ class Report:
         self.l_target_cols_merged = ['A+B', 'C+D', 'E+F', 'G', 'H+I', 'J', 'K', 'L', 'M', 'N']
 
     def data_percentage(self, df_data, b_this_cols):
+        """
+        function returns percentage of missing data
+        :param df_data dataset
+        :param b_this_cols boolean flag for a specific column
+        """
         if not b_this_cols:
             l_cols_demographic = ['Age', 'Gender', 'HealthCare', 'Unit', 'ServiceHistory', 'Service']
             l_cols_settings = ['Timestamp', 'VariableAmount', 'VariableLocation', 'VariableRange', 'GlucoseLevel',
@@ -97,6 +104,10 @@ class Report:
         self._model.set_df_to_csv(df_uniques_only, 'df_features', self.p_output, s_na='', b_append=False, b_header=True)
 
     def class_count(self, df_data):
+        """
+        function returns ratios of classes
+        :param df_data dataset
+        """
         d_percentages = {}
         df_classes = df_data[self.l_target_cols_merged]
         print('Classes Counts: ')
@@ -118,41 +129,11 @@ class Report:
 
         fig1.savefig(p_save, dpi=600)
 
-    @staticmethod
-    def existing_data(df_data):
-        categories = list(df_data.columns.values)
-        sns.set(font_scale=2)
-        plt.figure(figsize=(15, 8))
-        ax = sns.barplot(categories, df_data.iloc[:, 2:].sum().values)
-        plt.title("Existing Labels Chart", fontsize=24)
-        plt.ylabel('Number of Samples ', fontsize=18)
-        plt.xlabel('Class Type ', fontsize=18)
-        rects = ax.patches  # adding the text labels
-        labels = df_data.iloc[:, 2:].sum().values
-        for rect, label in zip(rects, labels):
-            height = rect.get_height()
-            ax.text(rect.get_x() + rect.get_width() / 2, height + 5, label, ha='center', va='bottom', fontsize=18)
-        plt.show()
-
-    @staticmethod
-    def multi_label_count(df_data):
-        i_rows = df_data.iloc[:, 2:].sum(axis=1)
-        multiLabel_counts = i_rows.value_counts()
-        multiLabel_counts = multiLabel_counts.iloc[1:]
-        sns.set(font_scale=2)
-        plt.figure(figsize=(15, 8))
-        ax = sns.barplot(multiLabel_counts.index, multiLabel_counts.values)
-        plt.title("Classes With Multiple Labels ")
-        plt.ylabel('Number of Samples', fontsize=18)
-        plt.xlabel('Number of Labels', fontsize=18)
-        rects = ax.patches        # adding the text labels
-        labels = multiLabel_counts.values
-        for rect, label in zip(rects, labels):
-            height = rect.get_height()
-            ax.text(rect.get_x() + rect.get_width() / 2, height + 5, label, ha='center', va='bottom')
-        plt.show()
-
     def values_count(self, df_data):
+        """
+        function returns ratios of features
+        :param df_data dataset
+        """
         l_categoricals = ['Gender', 'כללית', 'לא ידוע', 'לאומית', 'מאוחדת', 'מוסד רפאחר', 'מכבי', 'מסוק',
                                 'פניה עצמית', 'צה"ל', 'שרות בתי הסוהר', 'מחלקה כירורגית',
                           'מחלקה כירורגית יחידה ארגונית', 'מחלקה פנימית א יחידה ארגונית',
@@ -182,6 +163,15 @@ class Report:
         fig1.savefig(p_save, dpi=600)
 
     def plot_curve(self, x_value, y_value, func_label, x_label, y_label, fig_name):
+        """
+        function displays and saves plot
+        :param x_value
+        :param y_value
+        :param func_label label
+        :param x_label x axis name
+        :param y_label y axis name
+        :param fig_name figure name
+        """
         plt.plot(x_value, y_value, marker='.', label=func_label)
         plt.xlabel(x_label)
         plt.ylabel(y_label)
@@ -193,62 +183,3 @@ class Report:
             p_save = self.p_output + '/' + fig_name + '.png'
 
         plt.savefig(p_save, bbox_inches='tight')
-
-    def plot_cm(self, y_test, y_pred, labels):
-        cm = confusion_matrix(y_test, y_pred, labels)
-        print(cm)
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        cax = ax.matshow(cm)
-        plt.title('Confusion matrix of the classifier')
-        fig.colorbar(cax)
-        ax.set_xticklabels([''] + labels)
-        ax.set_yticklabels([''] + labels)
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
-        plt.show()
-
-        tp, fn, fp, tn = confusion_matrix(y_test, y_pred, labels=[1, 0]).reshape(-1)
-        print('True Positive | False Negative | False Positive | True Negative' + '\n')
-        print(tp, fn, fp, tn)
-
-        matrix = classification_report(y_test, y_pred, labels=[1, 0], output_dict=True)
-        df_cm = pd.DataFrame(matrix).transpose()
-        print('Classification report : \n', matrix)
-
-        p_save = self._model.p_output + r'\df_confusion_matrix.csv'
-        if self._model.b_vpn:
-            p_save = self._model.p_output + '/df_confusion_matrix.csv'
-
-        df_cm.to_csv(p_save, index=False)
-
-    def get_tfidf_cols(self, df_data):
-        l_all_cols = ['CaseID', 'Age', 'Gender', 'כללית', 'לא ידוע', 'לאומית', 'מאוחדת', 'מוסד רפאחר', 'מכבי',
-                      'מסוק',
-                      'פניה עצמית', 'צה"ל', 'שרות בתי הסוהר', 'מחלקה כירורגית',
-                      'מחלקה כירורגית יחידה ארגונית', 'מחלקה פנימית א יחידה ארגונית',
-                      'מכון איזוטופים יחידה ארגונית', 'Timestamp', 'VariableAmount', 'VariableLocation',
-                      'VariableRange', 'GlucoseLevel', 'TestStartTime', 'TestSetting', 'ServiceHistory', 'Service',
-                      'A+B', 'C+D', 'E+F', 'G', 'H+I', 'J', 'K', 'L', 'M', 'N']
-        l_cols = list(df_data.columns)
-        col = 0
-        length = len(l_cols)
-        for j in range(length):
-            if l_cols[j] not in l_all_cols:
-                col = j
-                break
-        if col == 0:
-            for k in range(length, -1, -1):
-                if l_cols[k - 1] not in l_all_cols:
-                    col = k - 1
-                    break
-                if k == 0:
-                    break
-        s_end = l_cols[col]
-        s_st1 = l_cols[length - 1]
-        s_st2 = l_cols[0]
-        if s_st2 in l_all_cols:
-            s_start = s_st1
-        else:
-            s_start = s_st2
-        return s_start, s_end

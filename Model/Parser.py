@@ -21,6 +21,9 @@ class Parser:
     _model = None
 
     def __init__(self, r_model, df_data, i_records):
+        """
+        Parser Constructor
+        """
         self._model = r_model
         self.df_data = df_data
         self.i_records = i_records
@@ -63,18 +66,24 @@ class Parser:
 
     def normalize_text(self, text):
         """
-        Returns string without bad formats and punctuations.
-            Args: text (str): string input of a sentence
+        function returns string without bad formats and punctuations.
+        :param text string input of a sentence
         """
         normalized_text = text.translate(str.maketrans(self.d_punc))
         return normalized_text
 
     def get_stopwords(self):
+        """
+        function reads stopwords file
+        """
         with open(self.p_stopwords, 'r', encoding='utf8') as file:
             data = file.read().replace('\n', self.space)
         return data
 
     def set_stopwords(self):
+        """
+        function loads and sets stopwords in a hash dictionary
+        """
         d_stopwords = {}
         with open(self.p_stopwords, 'r', encoding='utf8') as file:
             data = file.read().replace('\n', self.space)
@@ -85,6 +94,9 @@ class Parser:
         return d_stopwords
 
     def init_features_dict(self):
+        """
+        function initializes dict of known features which can dynamically enlarge if detects new features
+        """
         self.d_features_key = {
             'סיבת ההפניה': 'ArrivalReason',
             'ראש צוואר': 'HeadNeck',
@@ -98,6 +110,9 @@ class Parser:
         }
 
     def init_features_histogram(self):
+        """
+        function initializes dict of features histogram
+        """
         self.d_features_histogram = {
             'ArrivalReason': 0,
             'HeadNeck': 0,
@@ -111,13 +126,20 @@ class Parser:
         }
 
     def set_features_histogram(self, other_feature):
+        """
+        function updates feature histogram dictionary
+        """
         try:
             self.d_features_histogram[other_feature] += 1
         except KeyError as e:
             print(f'Error adding feature: {other_feature}, details: {e}')
 
     def set_features_key(self, other_feature, b_search_only):
-        # deals with invalid typing formats: e.g., head&neck, mCi8.64, random placement of symbols '#'
+        """
+        function deals with invalid typing formats: e.g., head&neck, mCi8.64, random placement of symbols '#'
+        :param other_feature input feature
+        :param b_search_only boolean flag to find a feature
+        """
         if 'CT' in other_feature:
             other_feature = other_feature.replace('CT', '')
         other_feature = other_feature.strip()
@@ -153,8 +175,13 @@ class Parser:
                 self.d_features_key.update({other_feature: 'new feature'})
         return other_feature, False
 
+    @staticmethod
     def set_puncwords(self, l_curr_puncs):
-        d_puncwords = {}
+        """
+        function loads and sets puncwords in a hash dictionary
+        :param l_curr_puncs punctuations to remove
+        """
+        d_puncwords = dict()
         if l_curr_puncs is not None:
             for word in l_curr_puncs:
                 # d_puncwords[word] = ''
@@ -163,7 +190,10 @@ class Parser:
         return d_puncwords
 
     def is_not_digit(self, value):
-        # function returns true if value is a term
+        """
+        function returns true if value is a term
+        :param value input
+        """
         if len(value) > 1:
             for element in value:
                 if element in self.d_punc_needed:
@@ -180,13 +210,20 @@ class Parser:
                 return False
 
     def is_not_digit_has_spaces(self, value):
+        """
+        function returns true if value is not a digit
+        :param value input
+        """
         for char in value:
             if self.is_not_digit(char) and char != self.space:
                 return False
         return True
 
     def is_digit(self, value):
-        # function returns true if the input value is a digit
+        """
+        function returns true if the input value is a digit
+        :param value input
+        """
         i_correct = 0
         if not isinstance(value, str):
             value = str(value)
@@ -207,6 +244,12 @@ class Parser:
 
     @staticmethod
     def find_nth(haystack, needle, n):
+        """
+        function returns index of n'th occurrence of a character
+        :param haystack text
+        :param needle char
+        :param n number of occurrence
+        """
         start = haystack.find(needle)
         while start >= 0 and n > 1:
             start = haystack.find(needle, start + len(needle))
@@ -214,15 +257,26 @@ class Parser:
         return start
 
     def filter_to_numbers(self, l_other):
+        """
+        function filters numbers from input
+        :param l_other input list
+        """
         return [x for x in l_other if x is not self.is_not_digit(x)]
 
     def find_next_digit_term(self, other_list):
+        """
+        function returns first index of number
+        :param other_list input list
+        """
         for i_term in range(len(other_list)):
             if not self.is_not_digit(other_list[i_term]):
                 return i_term
 
     def remove_missing_data(self, df_data):
-        # function finds missing labels and removes them
+        """
+        function finds missing labels and removes them
+        :param df_data dataframe
+        """
         length_before = df_data.shape[0]
         df_data.dropna(subset=self.l_target_cols, inplace=True)
         length_after = df_data.shape[0]
@@ -230,6 +284,11 @@ class Parser:
         self._model.set_df_to_csv(df_data, 'df_features', self.p_output, s_na='NA', b_append=True, b_header=True)
 
     def get_element(self, s_other, b_str):
+        """
+        function receives keywords (features) and finds their values in the text string
+        :param s_other input string
+        :param b_str boolean flag for string format
+        """
         s_other = s_other.strip()
         s_other = s_other.replace('  ', '')
         if self.colon in s_other:
@@ -260,6 +319,10 @@ class Parser:
         return np.nan
 
     def filter_term(self, other_term):
+        """
+        function receives a term with an invalid format and filters it appropriately
+        :param other_term term to filter
+        """
         if len(other_term) > 1 and 'ממצאי בדיקה' not in other_term and 'גרסה' not in other_term and 'CATDB' not in other_term and self.s_case_id not in other_term and ' דר ' not in other_term:
             if self.space not in other_term and other_term.isnumeric():
                 return False
@@ -278,6 +341,12 @@ class Parser:
             return False
 
     def split_by_paragraph(self, s_other):
+        """
+        function receives raw text and divides it to values in a list.
+        it separates by features found per case given
+        runs on the entire document
+        :param s_other input string
+        """
         l_this = s_other.split('\n')
         l_other = []
         i = 2
@@ -350,11 +419,20 @@ class Parser:
 
     @staticmethod
     def split_text_by_keys(curr_txt, l_key, r_key):
+        """
+        function splits text by given keyword ranges
+        :param curr_txt given input string
+        :param l_key left bound term
+        :param r_key right bound term
+        """
         return curr_txt.split(l_key)[1].split(r_key)[0].strip()
 
     def get_digits(self, other_list):
-        # function receives list of string (terms / digits)
-        # function returns new list with the term's digits only
+        """
+        function receives list of string (terms / digits)
+        :param other_list input
+        :return returns new list with the term's digits only
+        """
         this_list = []
         for term in other_list:
             if term != '':
@@ -363,7 +441,11 @@ class Parser:
         return this_list
 
     def filter_characters(self, other_list):
-        # function removes letters and returns the value with digits only
+        """
+        function removes letters to detect digits
+        :param other_list input
+        :return returns the value with digits only
+        """
         if isinstance(other_list, str) and len(other_list) > 1:
             new_term = ''
             for i_char in range(len(other_list)):
@@ -381,14 +463,10 @@ class Parser:
                             other_list[i_term] = other_list[i_term].replace(char, '')
             return other_list
 
-    @staticmethod
-    def index_next_empty(l_other, i):
-        for j in range(i+1, len(l_other)):
-            if len(l_other[j]) < 3:
-                return j
-        return -1
-
     def save_file(self):
+        """
+        function saves files to disk
+        """
         print(f'Number of valid files: {len(self.df_data)} out of {self.i_records}.')
         self.df_data[self._model.l_tfdf_cols_features] = self.df_data[self._model.l_tfdf_cols_features].replace(np.nan, '', regex=True)
         self._model.set_df_to_csv(self.df_data, 'df_features', self.p_output, s_na='NA', b_append=True, b_header=True)
@@ -397,6 +475,10 @@ class Parser:
         self._model.set_pickle(self.d_fixed, self.p_output, 'd_fixed')
 
     def get_case_id(self, s_demographics):
+        """
+        function detects feature case id
+        :param s_demographics input text
+        """
         i_case_id = np.nan
         try:
             self.s_case_id = ''.join(
@@ -408,6 +490,10 @@ class Parser:
         return i_case_id
 
     def get_gender(self, s_demographics):
+        """
+        function detects feature gender
+        :param s_demographics input text
+        """
         i_gender = np.nan
         try:
             s_gender = s_demographics.split("כתובת", 1)[1].split("מין")[0].strip().replace(self.colon, '')
@@ -420,6 +506,10 @@ class Parser:
         return i_gender
 
     def get_age(self, s_demographics):
+        """
+        function detects feature age
+        :param s_demographics input text
+        """
         i_age = np.nan
         try:
             i_age = (s_demographics.split("גיל", 1)[1]).split("מקרה")[0].strip().split(self.space)[0].replace(self.colon, '')
@@ -444,6 +534,10 @@ class Parser:
         return i_age
 
     def get_health_care(self, s_demographics):
+        """
+        function detects feature health care
+        :param s_demographics input text
+        """
         s_health_care = ''
         try:
             s_health_care = self.get_element((s_demographics.split("מקרה", 1)[1]).split("גורם")[0], True)
@@ -455,6 +549,10 @@ class Parser:
         return s_health_care
 
     def get_unit(self, s_demographics):
+        """
+        function detects feature unit in hospital
+        :param s_demographics input text
+        """
         s_unit = ''
         try:
             s_unit = (s_demographics.split("מפנה", 1)[1]).split("מזמינה")[0].strip().replace(self.colon, '')
@@ -469,6 +567,11 @@ class Parser:
         return s_unit
 
     def get_service(self, s_demographics, s_health_care):
+        """
+        function detects feature service and history
+        :param s_demographics input text
+        :param s_health_care
+        """
         s_service = ''
         try:
             if s_health_care == '':
@@ -489,6 +592,11 @@ class Parser:
         return s_service
 
     def get_timestamp(self, s_demographics, s_health_care):
+        """
+        function detects feature timestamp
+        :param s_demographics input text
+        :param s_health_care
+        """
         o_date_time = np.nan
         try:
             if s_health_care == '':
@@ -535,7 +643,10 @@ class Parser:
         return o_date_time
 
     def check_delimiter(self, value):
-        # function removes invalid formats from value
+        """
+        function removes invalid formats from value
+        :param value input
+        """
         if not pd.isna(value):
             value = value.strip()
             if len(value) > 0:
@@ -546,6 +657,10 @@ class Parser:
             return value
 
     def get_indicator_quantity(self, curr_txt):
+        """
+        function detects feature indicator quantity
+        :param curr_txt input text
+        """
         f_indicator_quantity = np.nan  # mCi - Milli Curie unit of radioactivity
         s_indicator_quantity = self.get_element(curr_txt.split('כמות הסמן')[1].split("אזור הזרקה")[0], False)
         if not self.is_digit(s_indicator_quantity):
@@ -582,6 +697,10 @@ class Parser:
         return f_indicator_quantity
 
     def get_injection_area(self, curr_txt):
+        """
+        function detects feature injection area
+        :param curr_txt input text
+        """
         s_injection_area = ''
         try:
             s_injection_area = curr_txt.split("אזור הזרקה")[1].split('טווח הסריקה')[0].strip()
@@ -610,6 +729,10 @@ class Parser:
         return s_injection_area
 
     def get_injection_range(self, curr_txt):
+        """
+        function detects feature injection range
+        :param curr_txt input text
+        """
         s_range = ''
         if 'רמת גלוקוז בדם' in curr_txt:
             try:
@@ -634,6 +757,10 @@ class Parser:
         return s_range
 
     def get_test_settings(self, curr_txt):
+        """
+        function detects feature examination settings
+        :param curr_txt input text
+        """
         s_test_setting = ''
         try:
             s_test_setting = curr_txt.split('הזרקת הסמן')[1].split('ממצאי הבדיקה')[0].strip()
@@ -651,6 +778,11 @@ class Parser:
         return s_test_setting
 
     def filter_list(self, other_value, other_list):
+        """
+        function corrects bad formats in input
+        :param other_value input value
+        :param other_list input sequence
+        """
         l_new_values = other_list[1: -1]
         i = 0
         b_flag = False
@@ -667,6 +799,10 @@ class Parser:
             return other_value
 
     def get_glucose_levels(self, curr_txt):
+        """
+        function detects feature glucose level
+        :param curr_txt input text
+        """
         i_glucose_level = np.nan  # mg%
         s_glucose_level_end = ''
         try:
@@ -764,7 +900,10 @@ class Parser:
         return i_glucose_level
 
     def get_start_time(self, curr_txt):
-        # function returns examination start time after injection in minutes
+        """
+        function detects feature examination start time after injection (in minutes)
+        :param curr_txt input text
+        """
         i_start_time = np.nan
         s_start_time = ''
         try:
@@ -811,6 +950,10 @@ class Parser:
         return i_start_time
 
     def validate_value(self, curr_segment):
+        """
+        function detects invalid records to monitor and fix
+        :param curr_segment input text
+        """
         if self.s_case_id not in self.d_fixed or len(self.d_fixed[self.s_case_id]) == 0:
             self.d_fixed[self.s_case_id] = list()
         l_curr = self.d_fixed[self.s_case_id]
@@ -823,11 +966,18 @@ class Parser:
             self.d_fixed[self.s_case_id].append(curr_segment + ' fix')
 
     def update_report(self, curr_segment):
+        """
+        function updates invalid data cases to monitor and fix
+        :param curr_segment input text
+        """
         if self.s_case_id not in self.d_invalid or len(self.d_invalid[self.s_case_id]) == 0:
             self.d_invalid[self.s_case_id] = list()
         self.d_invalid[self.s_case_id].append(curr_segment)
 
     def filter_empty_classes(self):
+        """
+        function writes the labels of each patient case
+        """
         b_valid = True
         counter = 0
         for key, value in self.d_features.items():
@@ -841,6 +991,9 @@ class Parser:
         return b_valid
 
     def get_labels(self):
+        """
+        function detects feature labels
+        """
         if self.s_target in self.s_text:
             self.d_features.update(dict.fromkeys(self.l_target_cols, int(0)))
             self.s_text = self.s_text.strip()
@@ -904,6 +1057,9 @@ class Parser:
         return self.filter_empty_classes()
 
     def set_features_demographics(self):
+        """
+        function detects demographic features
+        """
         s_demographics = (self.s_text.split("ת.ז.", 1))[1].split("ממצאים")[0].replace('\n', '')
         i_case_id = self.get_case_id(s_demographics)
         i_gender = self.get_gender(s_demographics)
@@ -919,6 +1075,9 @@ class Parser:
                            'Unit': s_unit, 'Timestamp': o_date_time, 'ServiceHistory': s_service}
 
     def set_features_evaluations(self):
+        """
+        function detects examination and sector features
+        """
         s_descriptions = (self.s_text.split("תיאור הבדיקה", 1))[1].split("תאריך הקלדה")[0]
         l_paragraphs_filter = list(filter(lambda x: x != '', s_descriptions.split('\n')))
         l_paragraphs = self.split_by_paragraph(s_descriptions)
@@ -966,6 +1125,9 @@ class Parser:
         return self.get_labels()
 
     def run(self, i, s_content):
+        """
+        main function: runs parsing
+        """
         self.s_text = self.normalize_text(s_content)  # Preprocess
         self.d_features = dict()  # Features Dictionary
         self.set_features_demographics()  # Extract Dynamic Demographic Features

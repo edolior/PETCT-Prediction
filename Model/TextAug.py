@@ -1,4 +1,6 @@
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import *
+from sklearn.model_selection import *
 
 from gensim.models import Word2Vec
 from gensim.models import KeyedVectors
@@ -20,6 +22,8 @@ import tensorflow as tf
 from keras.preprocessing.text import Tokenizer
 from transformers import XLNetTokenizer, XLNetModel, XLNetLMHeadModel, AutoTokenizer, AutoModelForMaskedLM
 # from transformers import TFXLNetModel
+from transformers import AutoConfig, AutoModelForSequenceClassification, EvalPrediction
+from transformers import (HfArgumentParser, Trainer, TrainingArguments)
 from keras_xlnet import Tokenizer, load_trained_model_from_checkpoint, ATTENTION_TYPE_BI
 from torch.nn import functional as F
 import torch
@@ -34,7 +38,6 @@ from random import randrange
 import os
 from tqdm import tqdm
 import time
-
 import pickle  # with vpn
 # import pickle5 as pickle  # when no vpn
 
@@ -42,7 +45,7 @@ import pickle  # with vpn
 # ---------------------------------------------------------------------------------------
 # TextAug Class:
 #
-# Augmentation generations
+# Augmentation Generation
 #
 #
 # Edo Lior
@@ -56,6 +59,9 @@ class TextAug:
     _model = None
 
     def __init__(self, ref_model):
+        """
+        TextAug Constructor
+        """
         self._model = ref_model
 
         self.p_input = self._model.p_output + r'\output_parser'
@@ -152,11 +158,20 @@ class TextAug:
             print('stopwords file not found.')
 
     def apply_concat(self, value):
+        """
+        function removes records with at least 1 NA
+        :param value record
+        """
         new_value = ' '.join(value.dropna().astype(str))  # deletes all row if at least 1 NA exists
         self.s_text += new_value
         return new_value
 
     def merge_to_one_col(self, df_curr, filename):
+        """
+        function merges all columns to 1 column
+        :param df_curr
+        :return filename
+        """
         l_cols = self._model.l_tfdf_cols_features.copy()
         if 'sectors' not in filename:
             if '_' in filename:
@@ -184,6 +199,11 @@ class TextAug:
         return s_corpus_sectors
 
     def merge_to_one_cell(self, df_curr, filename):
+        """
+        function merges 1 column of values into 1 cell
+        :param df_curr
+        :return filename
+        """
         s_curr = df_curr['Text']
         s_curr = s_curr.str.lower()
         df_text = pd.DataFrame({'Text': [' '.join(s_curr)]})  # merges multiple rows to one row
@@ -193,6 +213,11 @@ class TextAug:
         return df_text
 
     def extract_filename(self, p_curr, curr_aug):
+        """
+        function returns filename
+        :param p_curr path to file
+        :return curr_aug augmentation name
+        """
         if self._model.b_vpn:
             i = p_curr.rfind('/')
         else:
@@ -204,6 +229,9 @@ class TextAug:
 
     @staticmethod
     def set_file_list(filename, p_curr):
+        """
+        function loads file paths to list
+        """
         l_files = []
         for root, dirs, files in os.walk(p_curr):
             for file in files:
@@ -214,6 +242,9 @@ class TextAug:
         return l_files
 
     def merge_aug(self):
+        """
+        function merges augmentation files (by columns)
+        """
         for curr_aug in self._model.l_tta_types:
             filename = 'Merged'+curr_aug
             l_curr_files = self.set_file_list(curr_aug, self.p_output)
@@ -238,6 +269,10 @@ class TextAug:
 
     @staticmethod
     def set_puncwords(l_curr_puncs):
+        """
+        function loads and sets puncwords in a hash dictionary
+        :param l_curr_puncs punctuations to remove
+        """
         d_puncwords = {}
         if l_curr_puncs is not None:
             for word in l_curr_puncs:
@@ -246,10 +281,18 @@ class TextAug:
         return d_puncwords
 
     def normalize_text(self, text):
+        """
+        function removes punctuations in a given text
+        :param text input
+        """
         return text.translate(str.maketrans(self.d_punc)).strip()
 
     @staticmethod
     def toss(threshold=0.677):
+        """
+        function creates a uniformly probability for applying a augmentations in terms for every *threshold* terms
+        :param threshold 0.677 replaces augmentation every 3 terms
+        """
         uniform = np.random.uniform(0, 1)
         if uniform >= threshold:
             return False
@@ -257,6 +300,10 @@ class TextAug:
             return True
 
     def synonym_apply(self, value):
+        """
+        apply function: synonym
+        :param value record
+        """
         syn_sequence = value
         if value != 'False' and value != '':
             value = self.normalize_text(value)
@@ -328,6 +375,11 @@ class TextAug:
         return syn_sequence
 
     def set_candidate(self, l_curr_window, i_top=10):
+        """
+        function return candidate of predicted term per sliding window
+        :param l_curr_window list of terms in the sliding window
+        :param i_top amount of terms to choose from
+        """
         i_random = randrange(i_top)
 
         # v1-gensim #
@@ -377,40 +429,22 @@ class TextAug:
         return top_candidate
 
     def set_similar(self, curr_term, i_top=5):
+        """
+        function return candidate of augmentation
+        :param curr_term
+        :param i_top amount of terms to choose from
+        """
         preds = self.m_w2v.wv.most_similar(positive=[curr_term], topn=i_top)
         i_random = randrange(5)
         curr_tuple = preds[i_random]
         top_candidate = curr_tuple[0]
         return top_candidate
 
-    def xlnet_apply(self, value, tokenizer):
-        s_xlnet = value
-        if value != 'False' and value != '':
-            inputs = tokenizer(value, return_tensors="pt")
-            outputs = self.m_w2v(**inputs)
-            last_hidden_states = outputs.last_hidden_state
-            i_random = randrange(len(outputs))
-            s_xlnet = outputs[i_random]
-
-            # text = s_xlnet + tokenizer.mask_token
-            # mask_index = torch.where(input["input_ids"][0] == tokenizer.mask_token_id)
-            # inputs = tokenizer.encode_plus(text, return_tensors="pt")
-            # outputs = self.m_w2v(**inputs).logits
-            # softmax = F.softmax(outputs, dim=-1)
-            # mask_word = softmax[0, mask_index, :]
-            # top_10 = torch.topk(mask_word, 10, dim=1)[1][0]
-            # i_random = randrange(len(outputs))
-            # for token in top_10:
-            #     word = tokenizer.decode([token])
-            #     s_xlnet = text.replace(tokenizer.mask_token, word)
-            #     print(s_xlnet)
-            # s_xlnet = top_10[i_random]
-
-        s_xlnet = self.normalize_text(s_xlnet)
-        s_xlnet = s_xlnet.lower()
-        return s_xlnet
-
     def word2vec_apply(self, value):
+        """
+        apply function: word2vec
+        :param value record
+        """
         s_w2v = value
         i_top = 10
         if value != 'False' and value != '':
@@ -466,6 +500,12 @@ class TextAug:
         return s_w2v
 
     def translate_apply(self, value, src, tgt):
+        """
+        apply function: translation
+        :param value record
+        :param src source language
+        :param tgt target language
+        """
         self.i += 1
         seq_trans = value
         if value != 'False' and value != '':
@@ -485,6 +525,9 @@ class TextAug:
         return seq_trans
 
     def word2vec_train(self):
+        """
+        function trains word2vec model
+        """
         # self.emb_size = 100
         self.emb_size = 300
         # self.emb_size = 1000
@@ -557,16 +600,29 @@ class TextAug:
             print(f'Word2Vec Model Exists Already: {p_child}')
 
     def word2vec_save(self, m_w2v, p_child):
+        """
+        function saves word2vec model
+        :param m_w2v model object
+        :param p_child path of directory to save
+        """
         m_w2v.save(self.curr_w2v_name)
         print(f'Word2Vec Model Completed: {p_child}')
 
     def word2vec_load(self, p):
+        """
+        function loads word2vec model
+        :param p path
+        """
         if self._model.check_file_exists(p):
             self.m_w2v = Word2Vec.load(p)
         else:
             print('Word2Vec model has not been found.')
 
     def vocabulary_load(self, s_emb='100'):
+        """
+        function loads word embedding vocabularies
+        :param s_emb vector size
+        """
         vocabulary = dict()
         s_vocabulary = 'word2vec_vocab' + '_' + s_emb
         p_vocabulary = self._model.validate_path(self.p_output, s_vocabulary, 'pkl')
@@ -577,6 +633,11 @@ class TextAug:
         return vocabulary
 
     def tfidf(self, value, i_features):
+        """
+        function applies TF-IDF vectorization
+        :param value input
+        :param i_features maximnum amount of features to generate
+        """
         vectorizer = TfidfVectorizer(ngram_range=(1, 2), stop_words=self.l_stopwords, max_features=i_features,
                                      analyzer='word', encoding='utf-8', decode_error='strict',
                                      lowercase=True, norm='l2', smooth_idf=True, sublinear_tf=False)
@@ -593,12 +654,22 @@ class TextAug:
         return m_tfidf
 
     def get_sample(self, data, sample=1000):
+        """
+        function returns a sample range of data
+        :param data dataframe
+        :param sample amount of rows
+        """
         data_sample = data.copy()
         data_sample = data_sample.sample(frac=1).reset_index(drop=True)
         data_sample = data_sample.iloc[:sample]
         return data_sample
 
-    def umls_apply(self, value):
+    @staticmethod
+    def umls_apply(value):
+        """
+        apply function: returns umls output
+        :param value record
+        """
         s_umls = ''
         if value != 'False' and value != '':
             resp1 = umls_api.API(api_key=value).get_cui(cui='C0007107')  # symbolic id
@@ -607,6 +678,11 @@ class TextAug:
         return s_umls
 
     def create_cui_dict(self, voc_updated, tokenizer):
+        """
+        function creates an index-key dictionary of umls terms
+        :param col_key column of input
+        :param umls_col_name file name
+        """
         tui_ids = dict()
         id_to_tui = torch.zeros(len(tokenizer), dtype=torch.long)
         voc_size = 0
@@ -623,28 +699,17 @@ class TextAug:
                         id_to_tui[word_id] = tui_ids[line_list[2]]
         return id_to_tui
 
-    def load_umls(self):
-        parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-
-        # model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    def run_umls(self):
+        """
+        function initializes umls model
+        """
+        num_labels = 2
+        output_mode = 'classification'
+        df_data = pd.read_csv(self.p_output + '/sectors.csv')
+        x_train, x_test, y_train, y_test = train_test_split(df_data, test_size=0.25, random_state=3)
+        # parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+        parser = HfArgumentParser(TrainingArguments)
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
-        if (
-                os.path.exists(training_args.output_dir)
-                and os.listdir(training_args.output_dir)
-                and training_args.do_train
-                and not training_args.overwrite_output_dir
-        ):
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
-            )
-
-        set_seed(training_args.seed)
-        try:
-            num_labels = 2
-            output_mode = 'classification'
-        except KeyError:
-            raise ValueError("Task not found: %s" % (data_args.task_name))
 
         config = AutoConfig.from_pretrained(
             model_args.config_name if model_args.config_name else model_args.model_name_or_path,
@@ -662,124 +727,56 @@ class TextAug:
             config=config,
             cache_dir=model_args.cache_dir,
         )
-        tui_ids = None
-        if model_args.umls:
-            tui_ids = self.create_cui_dict(voc_updated=model_args.med_document, tokenizer=tokenizer)
-
-        train_dataset = (
-            GlueDataset(data_args, tokenizer=tokenizer, cache_dir=model_args.cache_dir,
-                        tui=tui_ids) if training_args.do_train else None
-        )
-        eval_dataset = (
-            GlueDataset(data_args, tokenizer=tokenizer, mode="dev", cache_dir=model_args.cache_dir, tui=tui_ids)
-            if training_args.do_eval
-            else None
-        )
-        test_dataset = (
-            GlueDataset(data_args, tokenizer=tokenizer, mode="test", cache_dir=model_args.cache_dir, tui=tui_ids)
-            if training_args.do_predict
-            else None
-        )
+        tui_ids = self.create_cui_dict(voc_updated=model_args.med_document, tokenizer=tokenizer)
 
         def build_compute_metrics_fn(task_name: str) -> Callable[[EvalPrediction], Dict]:
             def compute_metrics_fn(p: EvalPrediction):
-                if output_mode == "classification":
-                    preds = np.argmax(p.predictions, axis=1)
-                elif output_mode == "regression":
-                    preds = np.squeeze(p.predictions)
-                return glue_compute_metrics(task_name, preds, p.label_ids)
-
+                p_output = self.p_classifier
+                p_y = self._model.validate_path(self.p_output, 'y', 'csv')
+                y_test = pd.read_csv(p_y)
+                y_preds = np.argmax(p.predictions, axis=1)
+                auc_score = round(roc_auc_score(y_test, y_preds), 3)
             return compute_metrics_fn
 
         trainer = Trainer(
             model=model,
             args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
+            train_dataset=x_train,
+            eval_dataset=None,
             compute_metrics=build_compute_metrics_fn(data_args.task_name),
         )
 
-        if training_args.do_train:
-            trainer.train(
-                model_path=model_args.model_name_or_path if os.path.isdir(model_args.model_name_or_path) else None
-            )
-            # trainer.save_model()
-            # if trainer.is_world_master():
-            #     tokenizer.save_pretrained(training_args.output_dir)
+        trainer.train(
+            model_path=model_args.model_name_or_path if os.path.isdir(model_args.model_name_or_path) else None
+        )
 
-        eval_results = {}
-        if training_args.do_eval:
+        # trainer.save_model()
 
-            # Loop to handle MNLI double evaluation (matched, mis-matched)
-            eval_datasets = [eval_dataset]
-            if data_args.task_name == "mnli":
-                pass
-                # mnli_mm_data_args = dataclasses.replace(data_args, task_name="mnli-mm")
-                # eval_datasets.append(
-                #     GlueDataset(mnli_mm_data_args, tokenizer=tokenizer, mode="dev", cache_dir=model_args.cache_dir)
-                # )
-
-            for eval_dataset in eval_datasets:
-                trainer.compute_metrics = build_compute_metrics_fn(eval_dataset.args.task_name)
-                eval_result = trainer.evaluate(eval_dataset=eval_dataset)
-
-                output_eval_file = os.path.join(
-                    training_args.output_dir, f"eval_results_{eval_dataset.args.task_name}.txt"
-                )
-                if trainer.is_world_master():
-                    with open(output_eval_file, "w") as writer:
-                        for key, value in eval_result.items():
-                            writer.write("%s = %s\n" % (key, value))
-
-                eval_results.update(eval_result)
-
-        labels_id = []
-        if training_args.do_predict:
-            test_datasets = [test_dataset]
-            if data_args.task_name == "mnli":
-                pass
-                # mnli_mm_data_args = dataclasses.replace(data_args, task_name="mnli-mm")
-                # test_datasets.append(
-                #     GlueDataset(mnli_mm_data_args, tokenizer=tokenizer, mode="test", cache_dir=model_args.cache_dir)
-                # )
-
-            for test_dataset in test_datasets:
-                predictions = trainer.predict(test_dataset=test_dataset).predictions
-                if output_mode == "classification":
-                    predictions = np.argmax(predictions, axis=1)
-                for i in range(0, len(test_dataset.features)):
-                    labels_id.append(test_dataset.features[i].label)
-
-                metric = glue_compute_metrics(data_args.task_name, predictions, labels_id)
-                output_test_file = os.path.join(
-                    training_args.output_dir, f"test_results_{test_dataset.args.task_name}_metric.txt"
-                )
-                if trainer.is_world_master():
-                    with open(output_test_file, "w") as writer:
-                        for key, value in metric.items():
-                            writer.write("%s = %s\n" % (key, value))
-
-                eval_results.update(eval_result)
-
-                output_test_file = os.path.join(
-                    training_args.output_dir, f"test_results_{test_dataset.args.task_name}.txt"
-                )
-                if trainer.is_world_master():
-                    with open(output_test_file, "w") as writer:
-                        writer.write("index\tprediction\n")
-                        for index, item in enumerate(predictions):
-                            if output_mode == "regression":
-                                writer.write("%d\t%3.3f\n" % (index, item))
-                            else:
-                                item = test_dataset.get_labels()[item]
-                                writer.write("%d\t%s\n" % (index, item))
-        return eval_results
+        labels_id = list()
+        l_test = [x_test]
+        for test_dataset in l_test:
+            y_preds = trainer.predict(test_dataset=test_dataset).predictions
+            y_preds = np.argmax(y_preds, axis=1)
+            for i in range(0, len(test_dataset.features)):
+                labels_id.append(test_dataset.features[i].label)
+            auc_score = round(roc_auc_score(y_test, y_preds), 3)
 
     def aug_umls(self, col_key, umls_col_name):
-        # p_emb = self._model.p_resource + '/umls/bert_multi_cased/multi_cased_L-12_H-768_A-12'
-        p_emb = self._model.p_resource + '/umls/bert_umls/umlsbert/pytorch_model.bin'
-        tokenizer = AutoTokenizer.from_pretrained(p_emb)
-        m_umls = AutoModelForMaskedLM.from_pretrained(p_emb)
+        """
+        function generates augmentation and writes a file based on: umls (medical dictionary)
+        :param col_key column of input
+        :param umls_col_name file name
+        """
+        # p_emb = self._model.p_resource + '/umls/bert_multi_cased/multi_cased_L-12_H-768_A-12'  # v1
+        # tokenizer = AutoTokenizer.from_pretrained(p_emb)
+        # m_umls = AutoModelForMaskedLM.from_pretrained(p_emb)
+
+        # p_emb = self._model.p_resource + '/umls/bert_umls/umlsbert/pytorch_model.bin'  # v2
+        # p_config = self._model.p_resource + '/umls/bert_umls/umlsbert/config.json'
+        # p_vocab = self._model.p_resource + '/umls/bert_umls/umlsbert/vocab.txt'
+
+        self.run_umls()  # v3
+
         p_ulms_file = self._model.validate_path(self.p_tta, umls_col_name, 'csv')
         if self._model.check_file_exists(p_ulms_file):
             self.i_invalid = 0
@@ -813,7 +810,11 @@ class TextAug:
             print(f'Finished Augmentation: UMLS {umls_col_name}, with {self.i_invalid} invalid terms.')
 
     def glove_train(self, texts):
-        embeddings_index = {}
+        """
+        function trains glove model
+        :param texts input
+        """
+        embeddings_index = dict()
         max_words = 10000
 
         tokenizer = Tokenizer(num_words=max_words)
@@ -843,12 +844,21 @@ class TextAug:
                     embedding_matrix[i] = embedding_vector
 
     def convert_bin_to_txt(self):
+        """
+        function convert a binary file into a text file
+        """
         if not self._model.check_file_exists(self.p_wiki_heb_txt):
             p_data = self._model.p_project + '/Model/word2vec/wordembedding_hebrew'
             converter = Convert()
             converter.apply_convert(p_data, self.p_output)
 
     def aug_w2v(self, col_key, w2v_col_name):
+        """
+        function generates augmentation and writes a file based on: word2vec, glove, fasttext, bert, xlnet
+        :param col_key column of input
+        :param w2v_col_name file name
+        """
+
         # self.curr_w2v_name = 'm_word2vec_100'
         # self.curr_w2v_name = 'm_word2vec_300'
         # self.curr_w2v_name = 'm_word2vec_1000'
@@ -898,9 +908,7 @@ class TextAug:
                     if not df_curr_chunk.empty:
                         s_curr_to_w2v = df_curr_chunk[col_key].copy()
                         s_curr_to_w2v = s_curr_to_w2v.fillna(value='')
-
-                        # s_curr_w2v = s_curr_to_w2v.progress_apply(self.word2vec_apply)
-                        s_curr_w2v = s_curr_to_w2v.progress_apply(self.xlnet_apply, args=(m_tokenizer,))
+                        s_curr_w2v = s_curr_to_w2v.progress_apply(self.word2vec_apply)
 
                         # (1) with validation
                         df_curr_w2v = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
@@ -913,6 +921,12 @@ class TextAug:
             print(f'Finished Augmentation: Word2Vec {w2v_col_name}, with {self.i_invalid} invalid terms.')
 
     def aug_backtranslate(self, col_key, trans_col_name, backtrans_col_name):
+        """
+        function generates augmentation and writes a back-translated file
+        :param col_key column of input
+        :param trans_col_name input file name
+        :param backtrans_col_name output file name
+        """
         p_backtrans_file = self._model.validate_path(self.p_tta, backtrans_col_name, 'csv')
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
         if self._model.check_file_exists(p_backtrans_file):
@@ -949,6 +963,11 @@ class TextAug:
             print(f'Finished Augmentation: Back Translation {backtrans_col_name}, with {self.i_invalid} invalid terms.')
 
     def aug_hebrew_synonym(self, col_key, synheb_col_name):
+        """
+        function generates augmentation and writes a synonym file in the destination language
+        :param col_key column of input
+        :param synheb_col_name file name
+        """
         self.i_invalid = 0
         self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), synheb_col_name, self.p_tta, s_na='',
                                   b_append=True, b_header=True)
@@ -973,6 +992,13 @@ class TextAug:
         print(f'Hebrew synonyms invalid terms: {int(self.i_invalid)}')
 
     def aug_synonym(self, col_key, trans_col_name, syn_col_name, syn_heb_col_name):
+        """
+        function generates augmentation and writes a synonym file
+        :param col_key column of input
+        :param trans_col_name file name
+        :param syn_col_name column name of source language
+        :param syn_heb_col_name column name of destination language
+        """
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
         p_syn_file = self._model.validate_path(self.p_tta, syn_col_name, 'csv')
         p_syn_heb_file = self._model.validate_path(self.p_tta, syn_heb_col_name, 'csv')
@@ -1046,6 +1072,11 @@ class TextAug:
             print(f'Finished Augmentation: Hebrew Synonyms {syn_heb_col_name}, with {self.i_invalid} invalid terms.')
 
     def aug_translate(self, col_key, trans_col_name):
+        """
+        function generates augmentation and writes a translated file
+        :param col_key column of input
+        :param trans_col_name file name
+        """
         self.i_invalid = 0
         # print(self.translator.LANGUAGES) -> English = 'en', Hebrew = 'heb' or 'iw'
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
@@ -1079,7 +1110,10 @@ class TextAug:
 
     @staticmethod
     def get_chunk_index(p):
-        # 4 indexes
+        """
+        function return index of chunk in the dataset (4 indexes in total)
+        :param p path to file
+        """
         df_curr = pd.read_csv(p)
         length = df_curr.shape[0]
         if length < 500:
@@ -1094,12 +1128,20 @@ class TextAug:
 
     @staticmethod
     def remove_na_rows(df_curr, col_key):
+        """
+        function removes rows with missing values
+        :param df_curr dataframe input
+        :param col_key column input
+        """
         df_curr = df_curr[df_curr[col_key].str.strip().astype(bool)]  # deletes null
         df_curr = df_curr.reset_index(drop=True)
         df_curr = pd.DataFrame(df_curr, columns=[col_key])
         return df_curr
 
     def generate_aug_per_model(self):
+        """
+        function generates augmentations PER MODEL (Stacking)
+        """
         df_data = pd.read_csv(self._model.p_features_merged)
         # self.vocab_w2v = self.vocabulary_load('100')
         self.vocab_w2v = self.vocabulary_load('1000')
@@ -1130,6 +1172,9 @@ class TextAug:
         self.merge_aug()  # generates merged augmentation files (pre-vectorization)
 
     def load_index_file(self):
+        """
+        function loads index pickle file
+        """
         d_indexes = dict()
         p_curr = self.p_output + r'\d_indexes.pkl'
         p_indexes = self._model.set_vpn_dir(p_curr)
@@ -1139,6 +1184,11 @@ class TextAug:
         return d_indexes
 
     def apply_tfidf(self, df_corpus, s_aug):
+        """
+        function applies TF-IDF on a given dataset
+        :param df_corpus dataframe input
+        :param s_aug augmentation dataframe input
+        """
         p_curr = self._model.validate_path(self.p_output, s_aug, 'csv')
         if self._model.check_file_exists(p_curr):
             print(f'TF-IDF file for {s_aug} already exists.')
@@ -1162,14 +1212,20 @@ class TextAug:
             pickle.dump(vectorizer.vocabulary_, open(p_save_vocabulary, 'wb'))
 
     def apply_tfidf_per_model(self, df_input, i_features_sectors, i_features_settings, s_aug, b_tta=False):
-        # Method creates the following files:
-        #
-        # (1) "tfidf" TF-IDF file for all sectors + settings.
-        # (2) "sectors" TF-IDF file of all sectors together.
-        # (3) "settings" TF-IDF file for all settings
-        # (4) "separate" TF-IDF files for each sector.
-        # (5) "data" entire data put together.
-        # (6) "rest" demographics and settings.
+        """
+        function creates the following files PER MODEL (Stacking):
+        (1) "tfidf" TF-IDF file for all sectors + settings.
+        (2) "sectors" TF-IDF file of all sectors together.
+        (3) "settings" TF-IDF file for all settings
+        (4) "separate" TF-IDF files for each sector.
+        (5) "data" entire data put together.
+        (6) "rest" demographics and settings.
+        :param df_input dataframe
+        :param i_features_sectors number of keywords representing features of sectors
+        :param i_features_settings number of keywords representing features of examination settings
+        :param s_aug name of augmentation dataset
+        :param b_tta boolean flag for performing TF-IDF on augmentations
+        """
 
         # curr_exp_name = str(i_features_sectors) + '_' + str(i_features_sectors)  # different dirs for experiments
         # self.p_output = self._model.set_dir_get_path(self.p_output, curr_exp_name)
@@ -1275,14 +1331,14 @@ class TextAug:
             self._model.set_df_to_csv(df_tfidf, filename, self.p_classifier, s_na='', b_append=False, b_header=True)
 
     def generate_aug(self):
+        """
+        function generates augmentations
+        """
         p_original = self._model.validate_path(self.p_output, 'sectors', 'csv')
         df_data = pd.read_csv(p_original)
 
         s_text = df_data.columns.tolist()[1]  # validates format
         df_data[s_text] = df_data[s_text].fillna(value='')
-
-        p_y = self._model.validate_path(self.p_classifier, 'y', 'csv')
-        y = pd.read_csv(p_y)
 
         # self.vocab_w2v = self.vocabulary_load('100')
         # self.vocab_w2v = self.vocabulary_load('300')
@@ -1292,6 +1348,8 @@ class TextAug:
         # self.aug_synonym(s_text, 'translation', 'synonym', 'synonymheb')
         # self.aug_backtranslate(s_text, 'translation', 'backtrans')
         # self.aug_w2v(s_text, 'w2v')
+        # self.aug_w2v(s_text, 'fasttext')
+        # self.aug_w2v(s_text, 'bert')
         # self.aug_umls(s_text, 'umls')
         # self.aug_hebrew_synonym(s_text, 'synonymheb2')
 

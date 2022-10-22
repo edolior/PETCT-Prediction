@@ -21,7 +21,7 @@ import pickle  # with vpn
 # ---------------------------------------------------------------------------------------
 # Model Class:
 #
-# Primary class for running the flow of the process
+# Primary class for running the entire flow of Cancer Prediction.
 #
 #
 # Edo Lior
@@ -43,6 +43,9 @@ class Model:
     l_files = []
 
     def __init__(self, r_controller, d_config):
+        """
+        Model Constructor
+        """
         self._controller = r_controller
         self.d_config = d_config
         self.b_processing = self.d_config['b_processing']
@@ -103,9 +106,15 @@ class Model:
         self._report = Report(self)
 
     def init_data_structures(self):
+        """
+        function inits data structures
+        """
         self.df_data = pd.DataFrame(columns=self.l_target_cols).astype(int)
 
     def merge_targets(self):
+        """
+        function merges targets
+        """
         if not self.check_file_exists(self.p_features):
             print('Features file not found.')
         else:
@@ -131,6 +140,11 @@ class Model:
 
     @staticmethod
     def reorder_columns(df_curr, l_move):
+        """
+        function reorders columns of a given dataframe
+        :param df_curr input dataframe
+        :param l_move list of column order
+        """
         for col in l_move:
             df_pop = df_curr.pop(col)
             df_curr = pd.concat([df_curr, df_pop], 1)
@@ -138,12 +152,21 @@ class Model:
 
     @staticmethod
     def init_globals(process_counter):
-        global i_process_counter  # initializes shared variable for the process pool #
+        """
+        function initializes shared variable for the process pool
+        :param process_counter amount of processes being used
+        """
+        global i_process_counter
         global i_files_counter
         i_process_counter = process_counter
         i_files_counter = 0
 
     def set_file_list(self, b_parse, path=None):
+        """
+        function loads file paths to list
+        :param b_parse boolean flag for Parser class usage
+        :param path default or specific
+        """
         l_files = []
         if path is None:
             path = self.p_data_pdf
@@ -172,6 +195,11 @@ class Model:
 
     @staticmethod
     def set_df_columns_order(this_df, this_list):
+        """
+        function sets column of order of a datafrane
+        :param this_df input dataframe
+        :param this_list order of columns by list
+        """
         return this_df[this_list]
 
     def set_df_to_csv(self, df, filename, path, s_na='NA', b_append=True, b_header=True):
@@ -181,8 +209,8 @@ class Model:
         :param filename of the child file
         :param path of parent directory
         :param s_na value to replace na's
-        :param b_header to write header or not
         :param b_append boolean to append to dataframe
+        :param b_header to write header or not
         :return updated dataframe saved in resources directory path
         """
         p_write = path + '\\' + filename + '.csv'
@@ -194,13 +222,24 @@ class Model:
             df.to_csv(path_or_buf=p_write, mode='w', index=False, na_rep=s_na, header=b_header, encoding='utf-8-sig')
 
     def validate_path(self, parent_dir, child_filename, extension):
+        """
+        function configures path depending on VPN usage
+        :param parent_dir parent directory path
+        :param child_filename  child directory path
+        :param extension of file
+        """
         p_curr = parent_dir + '\\' + child_filename + '.' + extension
         if self.b_vpn:
             p_curr = parent_dir + '/' + child_filename + '.' + extension
         return p_curr
 
-    def get_csv_to_df_header_only(self, curr_file):
-        l_headers = pd.read_csv(curr_file, nrows=1).columns.tolist()
+    def get_csv_to_df_header_only(self, curr_file, nrows=1):
+        """
+        function reads CSV header only
+        :param curr_file CSV file
+        :param nrows number of rows to view
+        """
+        l_headers = pd.read_csv(curr_file, nrows).columns.tolist()
         i_cols = len(l_headers)
         s_file = self.get_filename(curr_file)
         print(f'File: {s_file}, Columns: {i_cols}')
@@ -208,6 +247,10 @@ class Model:
 
     @staticmethod
     def get_csv_to_df(curr_file):
+        """
+        function transforms CSV to DataFrame
+        :param curr_file CSV file
+        """
         df = pd.read_csv(curr_file, skip_blank_lines=True)
         curr_df = df.copy()
         del df
@@ -215,6 +258,10 @@ class Model:
 
     @staticmethod
     def set_vpn_dir(p_curr):
+        """
+        function configures VPN paths
+        :param p_curr path to convert to VPN
+        """
         s_prefix = '/home/edoli'
         if s_prefix not in p_curr:
             s_parent_dir = '/PETCT-Prediction'
@@ -233,6 +280,13 @@ class Model:
             return p_curr
 
     def set_dict_to_csv(self, d, filename, path):
+        """
+        function transforms DICT to CSV
+        :param d DICT
+        :param filename
+        :param path
+        :return CSV
+        """
         p_write = path + '\\' + filename + '.csv'
         if self.b_vpn:
             p_write = path + '/' + filename + '.csv'
@@ -246,6 +300,11 @@ class Model:
 
     @staticmethod
     def set_dict_of_dicts_to_csv(d, path):
+        """
+        function writes dict of dict to CSV
+        :param d dict
+        :param path to write
+        """
         try:
             with open(path, 'w', newline="") as csv_file:
                 writer = csv.writer(csv_file)
@@ -257,6 +316,11 @@ class Model:
             print("I/O error")
 
     def set_pickle_to_csv(self, path, filename):
+        """
+        function transforms PICKLE to CSV
+        :param path of pickle file
+        :param filename
+        """
         curr_path = path + '\\' + filename
         if self.b_vpn:
             curr_path = path + '/' + filename
@@ -264,6 +328,11 @@ class Model:
         self.set_dict_to_csv(d_data, filename, self.p_output)
 
     def set_pickle(self, d, path, filename):
+        """
+        function writes pickle files
+        :param path of pickle file
+        :param filename
+        """
         p_write = path + '\\' + filename + '.pkl'
         if self.b_vpn:
             p_write = path + '/' + filename + '.pkl'
@@ -275,6 +344,11 @@ class Model:
             pickle.dump(d, output, pickle.HIGHEST_PROTOCOL)
 
     def get_pickle(self, path, filename):
+        """
+        function reads pickle files
+        :param path of pickle file
+        :param filename
+        """
         p_read = path + '\\' + filename + '.pkl'
         if self.b_vpn:
             p_read = path + '/' + filename + '.pkl'
@@ -287,12 +361,21 @@ class Model:
 
     @staticmethod
     def set_dir(path):
+        """
+        function creates a directory only
+        :param path of directory
+        """
         try:
             os.mkdir(path)
         except OSError:
             print("Creation of the directory %s failed" % path)
 
     def set_dir_get_path(self, path, folder_name):
+        """
+        function creates a directory and returns its path
+        :param path of directory
+        :param folder_name requested name
+        """
         p_new_dir = path + '\\' + folder_name
         if self.b_vpn:
             p_new_dir = path + '/' + folder_name
@@ -302,6 +385,11 @@ class Model:
         return p_new_dir
 
     def get_filename(self, path):
+        """
+        function returns filename
+        :param path path to file
+        :return filename
+        """
         l_substring = path.split('\\')
         if self.b_vpn:
             l_substring = path.split('/')
@@ -309,11 +397,21 @@ class Model:
         return l_subtitle[0]
 
     @staticmethod
-    def check_file_exists(path_to_file):
-        return os.path.exists(path_to_file)
+    def check_file_exists(p_file):
+        """
+        function checks if a file exists
+        :param p_file path to directory
+        :return boolean
+        """
+        return os.path.exists(p_file)
 
     @staticmethod
     def get_csv_to_dict(path):
+        """
+        function transforms CSV to DICT
+        :param path of CSV
+        :return DICT
+        """
         with open(path, mode='r') as infile:
             reader = csv.reader(infile)
             d_new = {rows[0]: rows[1] for rows in reader}
@@ -321,6 +419,11 @@ class Model:
 
     @staticmethod
     def append_row_to_df(df, new_row):
+        """
+        function adds row in end of dataframe object
+        :param df dataframe
+        :param new_row new values to be inserted
+        """
         value = new_row.values[0]
         cols = df.columns
         if len(cols) > 1:
@@ -338,20 +441,37 @@ class Model:
         return df
 
     def get_stopwords(self):
+        """
+        function reads stopwords file
+        """
         return self._parser.get_stopwords()
 
     @staticmethod
     def crop(curr_file):
+        """
+        function crops PDF format to TXT format
+        :param curr_file current file being handled
+        """
         raw_text = parser.from_file(curr_file)
         return raw_text['content']
 
     def get_file_apply(self, curr_file, _parser):
+        """
+        function serves as mutex for multi-processing
+        :param curr_file current file being handled
+        :param _parser reference to Parser
+        :return merged stopwords file
+        """
         global i_files_counter
         with i_files_counter.get_lock():
             i_files_counter.value += 1
         self._parser.run(self.crop(curr_file))
 
-    def run_parser_processing_apply(self, file_path):
+    def run_parser_processing_apply(self, p_file):
+        """
+        function assigns multi-processes tasks to allocated files
+        :param p_file curr file to be assigned
+        """
         global i_process_counter
         _parser = None
         p_name = "#NUM_" + str(i_process_counter.value)
@@ -359,11 +479,14 @@ class Model:
             i_process_counter.value += 1
         f_start = time.time()
         _parser = Parser(self, self.df_data)
-        self.get_file_apply(file_path, _parser)
+        self.get_file_apply(p_file, _parser)
         f_end = time.time()
         print(p_name + 'Time: ' + str(f_end - f_start))
 
     def run_parser_processing(self):
+        """
+        function runs Parser class pipeline in multi-process
+        """
         global i_process_counter
         i_process_counter = multiprocessing.Value('i', 0)
         i_files_count = len(self.l_files)
@@ -373,22 +496,32 @@ class Model:
         i.wait()
 
     def run_parser(self):
+        """
+        function runs Parser class pipeline
+        """
         tqdm.pandas()
         self._parser = Parser(self, self.df_data, len(self.l_files))
         for i, curr_file in tqdm(enumerate(self.l_files)):
-            self._parser.run(i, self.crop(curr_file))
+            self._parser.run(i, self.crop(curr_file))  # runs tokenizing
         self._parser.save_file()
         print('Parser Done.')
 
     def run_preprocess(self):
+        """
+        function runs pre-processing pipelines
+        """
         if not self.check_file_exists(self.p_features):
             print('Features file not found.')
         else:
             df_data = pd.read_csv(self.p_features)
             self._report.unique_count(df_data, 'CaseID')  # removes duplicates with even timestamps
-            self.merge_targets()
+            self.merge_targets()  # merging classes
 
     def run_text_aug(self):
+        """
+        function runs TextAug class pipeline
+        """
+
         # l_exp_sectors = [10, 20, 100, 1000, 10000, None]
         # l_exp_settings = [5, 10, 10, 25, 50, None]
         # for i in range(len(l_exp_sectors)):
@@ -420,10 +553,19 @@ class Model:
         print('Augmentations Done.')
 
     def run_classifier(self):
+        """
+        function runs Classifier class pipeline
+        """
         _classifier = Classifier(self, self.b_tta)
         _classifier.run()
 
     def merge_stopwords(self, file1, file2):
+        """
+        function merges stopword files
+        :param file1
+        :param file2
+        :return merged stopwords file
+        """
         df_sw1 = self.get_csv_to_df(self.p_resource + file1)
         new_row1 = df_sw1.columns
         df_sw1 = self.append_row_to_df(df_sw1, new_row1)
@@ -439,6 +581,9 @@ class Model:
         self.set_df_to_csv(df_merged, 'merged_stopwords', self.p_resource, s_na='NA', b_append=True, b_header=True)
 
     def run_report(self):
+        """
+        function runs Report class pipeline
+        """
         if not self.check_file_exists(self.p_features_merged):
             print('Merged features file not found.')
         else:
@@ -448,6 +593,9 @@ class Model:
             self.get_dimensions()
 
     def get_dimensions(self):
+        """
+        function returns shapes of input files
+        """
         l_files = ['x_sectors', 'x_synonymheb', 'x_backtrans', 'x_w2v']
         for p_file in l_files:
             p_curr = self.validate_path(self.p_aug, p_file, 'csv')
@@ -467,6 +615,9 @@ class Model:
             # print(f'File: {filename}, \n Rows: {int(rows)}, \n Columns: {int(cols)}')
   
     def run(self):  # MAIN FLOW
+        """
+        main function: runs all phases of pre-processing, training and testing of the models
+        """
         b_parse = True
         i_run_start = time.time()
         self.set_file_list(b_parse)

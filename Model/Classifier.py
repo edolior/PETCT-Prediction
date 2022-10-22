@@ -107,6 +107,9 @@ class Classifier:
     df_best_fold = None
 
     def __init__(self, ref_model, b_tta):
+        """
+        Classifier Constructor
+        """
         self._model = ref_model
         self._report = Report(ref_model)
         self.b_tta = b_tta
@@ -187,14 +190,9 @@ class Classifier:
         ]
 
         self.l_tta_types = ['backtrans', 'synonymheb', 'w2v', 'bert']
-
         self.l_test_types = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert']
-
-        self.l_fold_scores = list()
-
-        self.l_formula_fold = list()
-
         self.i_datasets = len(self.l_test_types)
+        self.l_formula_fold = list()
 
         self.l_cols_sparse = [
             'לא ידוע', 'לאומית', 'מאוחדת', 'מוסד רפאחר', 'מכבי', 'מסוק', 'פניה עצמית', 'צה"ל',
@@ -246,6 +244,7 @@ class Classifier:
         self.d_configs = dict()
         self.d_level0 = dict()
         self.d_fold_scores = dict()
+        self.d_scores = dict()
 
         self.d_model_results_nested = {'TestAcc': list(), 'AUC': list(), 'Precision': list(), 'Recall': list(),
                                        'F1': list(), 'PRAUC': list()}
@@ -285,6 +284,10 @@ class Classifier:
         np.set_printoptions(precision=3)
 
     def get_models(self, s_target):
+        """
+        function initializes sub-models for Stacking
+        :param s_target model name
+        """
         self.d_models = dict()
 
         # self.d_models['DecisionTree'] = [
@@ -356,6 +359,9 @@ class Classifier:
         return o_stacking_model, s_stacking_name
 
     def set_call_backs(self):
+        """
+        function sets call backs: early stopping / learning rate reduction pace
+        """
         return [
             tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=4, min_delta=0.02,
                                              restore_best_weights=True),
@@ -365,9 +371,19 @@ class Classifier:
         ]
 
     def warmup(self, epoch, lr):
+        """
+        function helper for tokenization
+        :param epoch
+        :param lr learning rate
+        """
         return max(lr + 1e-6, 2e-5)
 
     def get_inputs(self, text, max_len=512):
+        """
+        function tokenizes attention model text input
+        :param text input
+        :param max_len sequence length of iteration
+        """
         inps = [self.m_tokenizer.encode_plus(t, max_length=max_len, pad_to_max_length=True, add_special_tokens=True) for t in
                 text]
         inp_tok = np.array([a['input_ids'] for a in inps])  # gets tensors from text using tokenizer
@@ -376,6 +392,9 @@ class Classifier:
         return inp_tok, ids, segments
 
     def load_xlnet(self):
+        """
+        function initializes xlnet model
+        """
         # (6) nlp-aug: XLNET
         # (6.1)
         # self.m_xlnet = naw.ContextualWordEmbsAug(model_path='xlnet', aug_p=0.1)  # tf 2.3
@@ -412,21 +431,41 @@ class Classifier:
         self.m_xlnet.summary()
 
     def train_xlnet(self, x_train, y_train, curr_label, epochs, batch_size, i_val_split):
+        """
+        function trains xlnet model
+        :param x_train
+        :param y_train
+        :param curr_label
+        :param epochs
+        :param batch_size
+        :param i_val_split ratio to split validation set
+        """
         inp_tok, ids, segments = self.get_inputs(x_train)
         history = self.m_xlnet.fit(x=inp_tok, y=y_train, epochs=epochs, batch_size=batch_size, validation_split=i_val_split)
         # self.m_xlnet.save_weights(self.p_input + '/xlnet.h5')
         # self.save_model(self.m_xlnet, curr_label)
 
     def infer_xlnet(self, x_test, y_test, s_target):
+        """
+        function infers xlnet model
+        :param x_test
+        :param y_test
+        :param s_target
+        """
         # self.m_xlnet = self.load_model(s_target, i_fold)
         inp_tok, ids, segments = self.get_inputs(x_test)
         y_preds = self.m_xlnet.predict(inp_tok, verbose=True)
         return y_preds
 
-    def plot_metrics(self, pred, true_labels):
-        acc = accuracy_score(true_labels, np.array(pred.flatten() >= .5, dtype='int'))
-        fpr, tpr, thresholds = roc_curve(true_labels, pred)
-        auc = roc_auc_score(true_labels, pred)
+    def plot_metrics(self, y_preds, y_test):
+        """
+        function calculates and plots xlnet results
+        :param y_preds
+        :param y_test
+        """
+        acc = accuracy_score(y_test, np.array(y_preds.flatten() >= .5, dtype='int'))
+        fpr, tpr, thresholds = roc_curve(y_test, y_preds)
+        auc = roc_auc_score(y_test, y_preds)
         fig, ax = plt.subplots(1, figsize=(8, 8))
         ax.plot(fpr, tpr, color='red')
         ax.plot([0, 1], [0, 1], color='black', linestyle='--')
@@ -436,6 +475,11 @@ class Classifier:
         self.save_plot(fig, s_title)
 
     def remove_sparse_features(self, f_threshold_na, d_remove):
+        """
+        function removes sparse features
+        :param f_threshold_na threshold of missing values to remove
+        :param d_remove dict of force remove
+        """
         if self._model.check_file_exists(self.p_onehot):
             print(f'Chosen threshold for feature removal: {f_threshold_na*100}%')
             df_filtered = pd.read_csv(self.p_onehot)
@@ -473,6 +517,9 @@ class Classifier:
             self._model.set_df_to_csv(df_filtered, 'df_filtered', self.p_output, s_na='', b_append=False, b_header=True)
 
     def get_models_per_model(self):
+        """
+        function initializes sub-models
+        """
         for i_sub_model in range(len(self.l_models)):
             self.d_models[self.l_models[i_sub_model]] = [
                 XGBClassifier(max_depth=4, eta=0.02, n_estimators=500, verbosity=0, objective='binary:logistic',
@@ -481,6 +528,9 @@ class Classifier:
             ]
 
     def init(self):
+        """
+        function inits gpu settings
+        """
         device_name = tf.test.gpu_device_name()
         if device_name != '/device:GPU:0':
             print(
@@ -496,6 +546,12 @@ class Classifier:
             return tf.math.reduce_sum(net_gpu)
 
     def save_model(self, o_model, s_model, i_top_fold):
+        """
+        function saves model to disk
+        :param o_model model object
+        :param s_model model name
+        :param i_top_fold top fold
+        """
         p_save = self.p_models + '\\' + s_model + '.pkl'
         if self._model.b_vpn:
             p_save = self.p_models + '/' + s_model + '.pkl'
@@ -503,6 +559,10 @@ class Classifier:
         print(f'Saved new top score model for class {s_model} (fold: {i_top_fold}).')
 
     def load_model(self, curr_label):
+        """
+        function loads model from disk
+        :param curr_label model name
+        """
         p_load = self.p_models + '\\' + curr_label + '.pkl'
         if self._model.b_vpn:
             p_load = self.p_models + '/' + curr_label + '.pkl'
@@ -513,10 +573,12 @@ class Classifier:
 
     def plot_confusion_matrix(self, y_preds, y_test, label, l_targets, s_model):
         """
-        function runs confusion matrix with specified scores
-        :param cm confusion matrix builder
-        :param l_targets list of multi-classes
-        :return scores
+        function runs confusion matrix calculations
+        :param y_preds
+        :param y_test
+        :param label
+        :param l_targets list of column names
+        :param s_model model name
         """
         # cm = multilabel_confusion_matrix(y_test, y_preds)
         cm = confusion_matrix(y_test, y_preds)
@@ -544,6 +606,11 @@ class Classifier:
         return df_cm
 
     def save_plot(self, fig, s_title):
+        """
+        function saves plot to disk
+        :param fig figure object
+        :param s_title title name of figure
+        """
         p_save = self.p_plots + '\\' + s_title + '.png'
         if self._model.b_vpn:
             p_save = self.p_plots + '/' + s_title + '.png'
@@ -556,6 +623,9 @@ class Classifier:
         # fig.savefig(p_save, dpi=600)
 
     def get_stacking(self):
+        """
+        function initializes Stacking Ensemble Model
+        """
         level0 = list()
         for s_model, o_model in self.d_models.items():
             o_builder = o_model[0]
@@ -568,6 +638,11 @@ class Classifier:
 
     @staticmethod
     def validate_model(o_model, s_model):
+        """
+        function validates model settings
+        :param o_model model object
+        :param s_model model name
+        """
         if hasattr(o_model, 'n_classes_'):
             if o_model.n_classes_ != 2:
                 o_model.n_classes_ = 2
@@ -580,6 +655,12 @@ class Classifier:
 
     @staticmethod
     def get_lightgbm(x_train, y_train, x_test):
+        """
+        function initializes LightGBM Model
+        :param x_train
+        :param y_train
+        :param x_test
+        """
         lgb_train = lgb.Dataset(x_train, y_train)
         # lgb_val = lgb.Dataset(x_val, y_val)
         parameters = {
@@ -601,6 +682,9 @@ class Classifier:
         return m_light_gbm, y_preds
 
     def get_tfidf_cols(self):
+        """
+        function returns index ranges after performing TF-IDF to the assigned sub-model
+        """
         l_cols = list(self.df_data.columns)
         col = 0
         length = len(l_cols)
@@ -626,6 +710,10 @@ class Classifier:
 
     @staticmethod
     def validate_type(df_data):
+        """
+        function validates features types
+        :param df_data dataframe to validate its types
+        """
         for col, row in df_data.iterrows():
             if col.dtype == 'object':
                 df_data[col] = df_data[col].astype(str)
@@ -636,6 +724,11 @@ class Classifier:
         return df_data
 
     def set_column_names(self, l_org_cols, ohe):
+        """
+        function returns feature names
+        :param l_org_cols list of the original columns
+        :param ohe one hot vector object
+        """
         train_feature_names = ohe.get_feature_names_out(l_org_cols)
         # train_feature_names = ohe.feature_names_in_.tolist()
         for i in range(len(train_feature_names)):
@@ -645,6 +738,11 @@ class Classifier:
         return train_feature_names
 
     def onehot_encoder(self, df_curr, df_test_curr=None):
+        """
+        function performs one hot encoding
+        :param df_curr is performed one hot encoding on
+        :param df_test_curr is performed one hot encoding appropriately to the training set one hot features
+        """
         df_test_ohe = None
         df_train_ohe = df_curr.copy()
         l_org_train_cols = df_train_ohe.columns.tolist()
@@ -683,6 +781,12 @@ class Classifier:
             return df_train_ohe
 
     def impute_mice(self, curr_general_train, curr_general_test, curr_y_train):
+        """
+        function performs imputation by: Multiple-Imputation
+        :param curr_general_train is performed imputation on
+        :param curr_general_test is performed imputation appropriately to the training set imputation
+        :param curr_y_train prediction helper
+        """
         general_train = curr_general_train.copy()
         general_test = curr_general_test.copy()
         y_train = curr_y_train.copy()
@@ -704,6 +808,11 @@ class Classifier:
         return general_train, general_test
 
     def impute_knn(self, curr_general_train, curr_general_test):
+        """
+        function performs imputation by: KNN
+        :param curr_general_train is performed imputation on
+        :param curr_general_test is performed imputation appropriately to the training set imputation
+        """
         general_train = curr_general_train.copy()
         general_test = curr_general_test.copy()
         imp_knn = KNNImputer(n_neighbors=20, weights="uniform")
@@ -721,6 +830,11 @@ class Classifier:
         return general_train, general_test
 
     def impute_mean(self, curr_general_train, curr_general_test):
+        """
+        function performs imputation by: Mean
+        :param curr_general_train is performed imputation on
+        :param curr_general_test is performed imputation appropriately to the training set imputation
+        """
         general_train = curr_general_train.copy()
         general_test = curr_general_test.copy()
         imp_mean = SimpleImputer(missing_values=np.nan, strategy='mean')
@@ -737,19 +851,11 @@ class Classifier:
         general_test.reset_index(inplace=True, drop=True)
         return general_train, general_test
 
-    def standard_scalar(self):
-        self.df_data = pd.read_csv(self.p_imputed)
-        standard_scalar = StandardScaler()
-        l_numerics = ['Age', 'VariableAmount', 'GlucoseLevel']
-        x_numerics = self.df_data[l_numerics].copy()
-        x_numerics = standard_scalar.fit_transform(x_numerics)
-        self.df_data['Age'] = x_numerics[:, 0]
-        self.df_data['VariableAmount'] = x_numerics[:, 1]
-        self.df_data['GlucoseLevel'] = x_numerics[:, 2]
-        self._model.set_df_to_csv(self.df_data, 'df_standard', self.p_output, s_na='', b_append=False, b_header=False)
-        print('Standardization done.')
-
     def get_model_name(self, path):
+        """
+        function returns model name
+        :param path of model
+        """
         if self._model.b_vpn:
             index1 = path.rfind('/')
             index2 = path.rfind('.')
@@ -760,6 +866,10 @@ class Classifier:
         return s_model
 
     def init_models(self, b_sample=False):
+        """
+        function for loading datasets to insert to the models
+        :param b_sample when using sampled records
+        """
         sectors, general, x, y = None, None, None, None
 
         p_general = self._model.validate_path(self.p_input_aug, 'x_general', 'csv')
@@ -809,6 +919,13 @@ class Classifier:
         return x, general, y, l_curr_x_mrg
 
     def show_values(self, axs, results, orient, space=.01):
+        """
+        function displays auc score text on top of plots
+        :param axs plot object
+        :param results float auc scores
+        :param orient type of plot: bar/box/scatter
+        :param space between shape and text
+        """
         def _single(ax):
             if orient == 'bar':
                 for p in ax.patches:
@@ -852,6 +969,14 @@ class Classifier:
             _single(axs)
 
     def plot(self, df_results, l_names, s_x_axis, s_y_axis, s_title):
+        """
+        function displays results
+        :param df_results df of prediction results
+        :param l_names list of model names
+        :param s_x_axis graph x axis title
+        :param s_y_axis graph y axis title
+        :param s_title graph main title
+        """
         sns.set_theme(style="whitegrid")
         s_title = s_y_axis + ' ' + s_title
 
@@ -890,34 +1015,47 @@ class Classifier:
         self.save_plot(fig, s_title)
 
     def plot_results(self, l_results, l_names, s_title, s_axis):
+        """
+        function displays results
+        :param l_results list of prediction results
+        :param l_names list of model names
+        :param s_title graph main title
+        :param s_axis graph axis title
+        """
         fig = plt.figure()
-        fig.suptitle(s_title, fontsize=20)
-        plt.xticks(rotation=45, ha='right')
-        plt.ylabel(s_axis, fontsize=16)
+        if s_axis == 'AUC':
+            sns.set_theme(style="darkgrid")
+            sns.scatterplot(data=l_results, sizes=(30, 200), legend='brief').set(title=s_axis + ' ' + s_title)
+            # sns.scatterplot(data=l_results, x='Class', y='AUC', sizes=(30, 200), legend='brief').set(title=s_axis + ' ' + s_title)
+        else:
+            fig.suptitle(s_title, fontsize=20)  # v1
+            plt.ylabel(s_axis, fontsize=16)
+            plt.xticks(rotation=45, ha='right')
+            l_elements = list(range(1, len(l_names) + 1))
+            plt.bar(l_elements, l_results, tick_label=l_names, width=0.8, color=self.l_colors5)
+            for i in range(len(l_results)):
+                l_results[i] = float("{:.3f}".format(l_results[i]))
+                plt.annotate(str(l_results[i]), xy=(l_elements[i], l_results[i]), ha='center', va='bottom')
 
-        l_elements = list(range(1, len(l_names)+1))
-
-        plt.bar(l_elements, l_results, tick_label=l_names, width=0.8, color=self.l_colors5)
-
-        for i in range(len(l_results)):
-            l_results[i] = float("{:.3f}".format(l_results[i]))
-            plt.annotate(str(l_results[i]), xy=(l_elements[i], l_results[i]), ha='center', va='bottom')
-
-        # box = plt.boxplot(l_results, labels=l_names, showmeans=True)
-        # # ax = sns.boxplot(x=l_names, y="AUC score", data=l_results)
-        # i_box = 0
-        # l_caps = box['caps']
-        # for line in box['medians']:
-        #     curr_caps = l_caps[i_box]
-        #     y_top = curr_caps.get_ydata()[0]
-        #     x, y = line.get_xydata()[1]  # top of median line
-        #     plt.text(x, y, '%.2f' % y, horizontalalignment='center')  # draw above and centered
-        #     i_box += 1
+            # box = plt.boxplot(l_results, labels=l_names, showmeans=True)  # v2
+            # # ax = sns.boxplot(x=l_names, y="AUC score", data=l_results)
+            # i_box = 0
+            # l_caps = box['caps']
+            # for line in box['medians']:
+            #     curr_caps = l_caps[i_box]
+            #     y_top = curr_caps.get_ydata()[0]
+            #     x, y = line.get_xydata()[1]  # top of median line
+            #     plt.text(x, y, '%.2f' % y, horizontalalignment='center')  # draw above and centered
+            #     i_box += 1
 
         plt.show()
         self.save_plot(fig, s_title)
 
     def get_indexes(self, x):
+        """
+        function reads range of indexes from saved pickle of index dictionary
+        :param x
+        """
         d_indexes = self._model.get_pickle(self.p_input_aug, 'd_indexes')
         # d_indexes['General'] = [d_indexes['General'][0], d_indexes['General'][1] - 1]  # range fix
         d_indexes['StomachPelvis'] = [d_indexes['StomachPelvis'][0], d_indexes['StomachPelvis'][1] - 1]  # range fix
@@ -939,6 +1077,12 @@ class Classifier:
         return d_indexes
 
     def down_sample(self, x_curr, y_curr, s_target):
+        """
+        function performs down-sampling: fixes ration by erasing occurrences of non-diseased patients
+        :param x_curr
+        :param y_curr
+        :param s_target class name
+        """
         threshold_ratio = 10
         df_majority, df_minority = None, None
 
@@ -1035,6 +1179,11 @@ class Classifier:
         return x_new, y_new, i_range
 
     def set_indexes(self, element_indexes, b_org_indexes=False):
+        """
+        function sets index of records before randomization to keep original indexes in a list
+        :param element_indexes original index order of records
+        :param b_org_indexes boolean flag for re-setting indexes of randomizes records back to the original order
+        """
         l_indexes = None
         if isinstance(element_indexes, pd.DataFrame):
             element_indexes = element_indexes.index
@@ -1052,12 +1201,20 @@ class Classifier:
         self.general.reset_index(inplace=True, drop=True)
 
     def get_data_counts(self, y):
+        """
+        function calculates class ratios
+        :param y
+        """
         s_target_count = y[self.l_targets_merged].sum()
         for index, val in s_target_count.iteritems():
             print(index, val)
 
     @staticmethod
     def get_transformers(d_indexes):
+        """
+        function initializes sub-models of each sector
+        :param d_indexes dict of index range of the entire dataframe
+        """
         d_transformers = {
             # 'ARRIVAL': ColumnTransformer(
             #     transformers=[('ARRIVAL', 'passthrough', d_indexes['ArrivalReason']), ], remainder='drop', ),
@@ -1090,6 +1247,11 @@ class Classifier:
         return d_transformers
 
     def set_ensemble_model(self, d_transformers, s_target):
+        """
+        function initializes Stacking Ensemble Model
+        :param d_transformers dict of sub-models with index range of features
+        :param s_target model (class) name
+        """
         l_level0 = list()
         for s_model, v_model in self.d_models.items():
             l_level0.append((s_model, make_pipeline(d_transformers[s_model], v_model[0])))
@@ -1099,6 +1261,15 @@ class Classifier:
         return o_model, s_model
 
     def update_confusion_matrix(self, y_test, y_preds, s_model, s_target, i, j):
+        """
+        function updates confusion matrix results
+        :param y_test
+        :param y_preds
+        :param s_model model name
+        :param s_target class name
+        :param i aug type of training
+        :param j aug type of testing
+        """
         y_test_1d, y_preds_1d = np.squeeze(y_test), np.squeeze(y_preds)
         l_uniques = list(np.unique(y_test_1d).astype('int'))
         l_targets = [int(element) for element in l_uniques]
@@ -1114,6 +1285,10 @@ class Classifier:
         self.df_cms = self.df_cms.append(df_cm, ignore_index=True)
 
     def update_metrics_average(self, s_model):
+        """
+        function updates metrics average score of cv
+        :param s_model model name
+        """
         df_avg_folds = self.df_metrics.loc[self.df_metrics['Model'] == s_model]
         d_curr_avg = {'Model': s_model, 'Class': 'AVG', 'Fold': -1,
                       'TestAcc': df_avg_folds['TestAcc'].mean(),
@@ -1127,6 +1302,11 @@ class Classifier:
         self.df_metrics = self.df_metrics.append(d_curr_avg, ignore_index=True)
 
     def update_metrics_best(self, s_model, top_fold):
+        """
+        function updates top metrics score
+        :param s_model model name
+        :param top_fold index of top fold
+        """
         df_best_fold = self.df_metrics.loc[
             (self.df_metrics['Fold'] == top_fold) & (self.df_metrics['Model'] == s_model)]
         d_curr_top = {'Model': s_model, 'Class': 'BEST', 'Fold': top_fold,
@@ -1145,6 +1325,11 @@ class Classifier:
         self.df_metrics_models = self.df_metrics_models.append(d_curr_top, ignore_index=True)
 
     def randomize_data(self, x_curr, y_curr):
+        """
+        function randomizes records in dataframe / series
+        :param x_curr
+        :param y_curr
+        """
         b_org_indexes = False
         l_cols_x = list(x_curr.columns)
         if isinstance(y_curr, pd.Series):
@@ -1161,6 +1346,12 @@ class Classifier:
         return x_rnd, y_rnd
 
     def split_train_test(self, x, y, f_val=0.2):
+        """
+        function splits dataset to training and test sets
+        :param x
+        :param y
+        :param f_val float value of evaluation set percentage size
+        """
         i_rows = y.shape[0]
         i_split_val = int(i_rows * f_val)
         i_split_train = i_rows - i_split_val
@@ -1169,6 +1360,14 @@ class Classifier:
         return x, y, x_test, y_test
 
     def split_train_evaluation(self, x, y, i_train, i_test, f_val=0):
+        """
+        function splits training and evaluation from the training set
+        :param x
+        :param y
+        :param i_train index of train records
+        :param i_test index of test records
+        :param f_val float value of evaluation set percentage size
+        """
         x_eval, x_test = x[i_train], x[i_test]
         y_eval, y_test = y[i_train], y[i_test]
         eval, test = (x_eval, y_eval), (x_test, y_test)
@@ -1185,6 +1384,13 @@ class Classifier:
             return x_train, x_val, x_test, y_train, y_val, y_test, train, val, test, x_fold, y_fold
 
     def update_best_score(self, i_fold, s_model, top_fold, top_score):
+        """
+        function returns best score for fold
+        :param i_fold fold index
+        :param s_model model name
+        :param top_fold current top fold index
+        :param top_score current top fold value
+        """
         b_best = False
         df_curr_fold = self.df_metrics.loc[
             (self.df_metrics['Fold'] == i_fold) & (self.df_metrics['Model'] == s_model)]
@@ -1196,6 +1402,14 @@ class Classifier:
         return b_best, top_fold, top_score
 
     def update_stacking_scores(self, s_target, i_fold, o_model, x_test, j):
+        """
+        function sets stacking score and calculates mean
+        :param s_target class name
+        :param i_fold fold index
+        :param o_model model object
+        :param x_test
+        :param j index of aug type
+        """
         d_scores = dict()
         l_avg_scores = list()
         s_test_type = self.l_test_types[j]
@@ -1216,6 +1430,10 @@ class Classifier:
         self.df_stacking = self.df_stacking.append(d_scores, ignore_index=True)
 
     def init_models_tta(self, b_sample=False):
+        """
+        function reads TTA files
+        :param b_sample for using samples
+        """
         l_tta = list()
         tqdm.pandas()
         for aug_type in tqdm(self.l_tta_types):
@@ -1238,17 +1456,41 @@ class Classifier:
         return l_tta
 
     def apply_fold(self, value):
+        """
+        apply function: returns all values per fold
+        :param value current dataframe
+        """
         for index, row in value.iterrows():
             name = row['Test']
             score = row['AUC']
             self.d_fold_scores[name].append(score)
 
+    def apply_top_fold(self, value, filename):
+        """
+        apply function: maximum value
+        :param value current dataframe
+        :param filename of experiment
+        """
+        df_subset = value[value['Test'] == 'TTAEnsemble']
+        if df_subset.shape[0] > 0:
+            top_value = df_subset['AUC'].max()
+        else:
+            top_value = value['AUC'].max()
+        self.d_scores[filename].append(top_value)
+
     def get_metrics_average(self):
+        """
+        function calculates final score and displays on plot
+        """
+
         # s_filename= 'w2v'
-        s_filename = 'results'
+        # s_filename = 'results'
+        s_filename = 'final'
 
         if 'results' in s_filename:
-            l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'TTAEnsemble']
+            # l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'TTAEnsemble']
+            l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'xlnet', 'TTAEnsemble']
+            # l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'xlnet', 'umls', 'TTAEnsemble']
             s_axis = f'AUC Average {self.i_cv} Folds CV'
 
             # version, experiment = '1', 'bert_no_general'
@@ -1260,13 +1502,15 @@ class Classifier:
             # version, experiment = '7', 'sclr_folds3'
             # version, experiment = '8', 'sclr_folds5'
             # version, experiment = '9', 'priority'
-            version, experiment = '10', 'train'
+            # version, experiment = '10', 'train'
+            version, experiment = '11', 'xlnet'
+            # version, experiment = '12', 'umls'
 
             p_file = self.p_output + '/' + experiment + '/' + s_filename + version + '.csv'
 
             df_curr_file = pd.read_csv(p_file)
 
-            for i in range(len(self.l_targets_merged)):  # loops classes
+            for i in range(len(self.l_targets_merged)):
                 curr_class = self.l_targets_merged[i]
 
                 if experiment == 'baseline':
@@ -1347,7 +1591,44 @@ class Classifier:
 
                 self.plot_results(l_results, l_order, s_title, s_axis)
 
+        elif s_filename == 'final':
+            s_title = '5 Fold CV Results'
+            s_axis = 'AUC'
+            df_curr = self.load_outputs()
+            # df_curr_exp1 = df_curr[['AlgorithmA', 'AlgorithmB']].copy()
+            df_curr_exp2 = df_curr[['AlgorithmB', 'AlgorithmC']].copy()
+            self.plot_results(df_curr_exp2, self.l_targets_merged, s_title, s_axis)
+
+    def load_outputs(self):
+        """
+        function displays results of proposed algorithms
+        """
+        l_filenames = ['baseline/results6', 'sclr_folds5/results8', 'train/results10']
+        l_filenames_exp1 = ['baseline/results6', 'sclr_folds5/results8']
+        l_filenames_exp2 = ['train/results10', 'sclr_folds5/results8']
+        df_output = pd.DataFrame(index=self.l_targets_merged, columns=['AlgorithmA', 'AlgorithmB', 'AlgorithmC'], )
+        for filename in l_filenames:
+            self.d_scores[filename] = list()
+            p_results = self.p_output + '/results/' + filename + '.csv'
+            df_curr_file = pd.read_csv(p_results)
+            df_curr_file.groupby(['Class']).apply(self.apply_top_fold, filename)
+        i_file = 0
+        for col in df_output.columns:
+            df_output[col] = self.d_scores[l_filenames[i_file]]
+            i_file += 1
+        return df_output
+
     def up_sample(self, x_train, y_train, y_curr, i_train, i_range, s_target):
+        """
+        function performs up-sampling: fixes ratio by generating replicas for diseased patients
+        :param x_train
+        :param y_train
+        :param y_curr
+        :param i_train index of training records
+        :param i_range difference of records between existing ratio to a given ration
+        :param s_target class name
+        """
+
         np_y = y_curr.copy()
         df_y = pd.DataFrame(data=np_y, columns=[s_target])
         df_majority = df_y[df_y[s_target] == 0]
@@ -1441,16 +1722,20 @@ class Classifier:
         return x_train, y_train
 
     def model_cv_pipeline(self):
+        # function runs Stacking Ensemble Model:
+        # Level 0: 10 sub-models for each sector of the patient
+        # Level 1: Regression
+
         b_folds = True
         b_downsample = True
         i_fold = 0
-        f_val = 0.1  # non-cv
+        f_val = 0.1
         threshold_proba = 0.75
         l_model_scores, l_classes_names = list(), list()
         i_range = None
         d_stack_scores = dict()
 
-        x, y, self.l_tta = self.init_models()
+        x, _, y, self.l_tta = self.init_models()
 
         self.get_models_per_model()
 
@@ -1654,6 +1939,8 @@ class Classifier:
         print(f'Done Running Stacking Ensemble Models.')
 
     def model_cv_baseline(self):
+        # function runs Baseline Model
+
         # b_sample = True
         b_sample = False
 
@@ -1730,13 +2017,15 @@ class Classifier:
                                       s_na='', b_append=True, b_header=True)
 
     def model_cv_train(self):
-        l_test_aug, l_preds_aug, l_probs_aug = None, None, None
+        # function runs Pre-trained TTA Ensemble Model
 
-        # b_resample = True
-        b_resample = False
+        l_test_aug, l_preds_aug, l_probs_aug = None, None, None
 
         # b_sample = True
         b_sample = False
+
+        # b_resample = True
+        b_resample = False
 
         # self.init()
 
@@ -1877,6 +2166,11 @@ class Classifier:
                 self.init()
 
     def read_csv_sample(self, p_csv, shape):
+        """
+        function reads csv by amount of rows given
+        :param p_csv path to CSV file
+        :param shape amount of rows / cols to read
+        """
         df = pd.read_csv(p_csv, chunksize=shape)
         for chunk in df:
             if len(chunk.columns.tolist()) > len(self.l_targets_merged):
@@ -1884,17 +2178,28 @@ class Classifier:
             else:
                 return chunk
 
-    def normalize_text_params(self, s_text):
+    @staticmethod
+    def normalize_text_params(s_text):
+        """
+        function for text normalization: punctuations removal, lower case, alpha-numeric removal, invalid formats
+        :param s_params name of model
+        """
         d_punc = {
             "\"": None, '\"': None, ',': None, '"': None, '|': None, '-': None, '`': None, '/': None, ';': None,
             "'": None, '[': None, ']': None, '(': None, ')': None, '{': None, '}': None, ':': None,
         }
         s_text = s_text.translate(str.maketrans(d_punc))
         s_text = s_text.lower()
+        # s_text = ''.join(filter(str.isalnum, s_text))
+        # s_text = ''.join([i for i in s if i.isalpha()])
         s_text = s_text.strip()
         return s_text
 
     def load_params(self, s_params):
+        """
+        function loads hyper-parameters file
+        :param s_params name of model
+        """
         d_params = self._model.get_pickle(self.p_params, s_params)
         for key, value in d_params.items():
             f_value = round(float(value), 3)
@@ -1905,16 +2210,31 @@ class Classifier:
         return d_params
 
     def optimize_cv(self, n_estimators, max_depth, eta, x, y):
-        # self.init()
+        """
+        function optimizes model hyper-parameters
+        :param n_estimators variable to optimize
+        :param max_depth variable to optimize
+        :param eta variable to optimize
+        :param x
+        :param y
+        """
 
         o_model = XGBClassifier(max_depth=max_depth, eta=eta, n_estimators=n_estimators,
                                 random_state=5, verbosity=0, use_label_encoder=False)
 
         cval = cross_val_score(o_model, x, y, scoring='roc_auc', cv=self.i_cv)
 
+        # self.init()
+
         return cval.mean()
 
     def optimize_model(self, x, y, p_params):
+        """
+        function optimizes model hyper-parameters with bayesian optimzation
+        :param x
+        :param y
+        :param p_params output path
+        """
 
         def crossval(n_estimators, max_depth, eta):
             return self.optimize_cv(
@@ -1945,6 +2265,13 @@ class Classifier:
         # df_results.to_csv(path_or_buf=self.p_output, mode='w', index=False, na_rep='', header=True, encoding='utf-8-sig')
 
     def optimize_params(self, x_curr, y_curr, p_params, vectorizer):
+        """
+        function optimizes model hyper-parameters
+        :param x_curr
+        :param y_curr
+        :param p_params output path
+        :param vectorizer
+        """
         x = x_curr.copy()
         y = y_curr.copy()
         x = vectorizer.fit_transform(x)
@@ -1953,9 +2280,19 @@ class Classifier:
         self.optimize_model(x, y, p_params)
         
     def update_metrics(self, y_test, y_preds, y_probs, s_model, s_target, i_fold, n):
+        """
+        function calculates evaluation criteria
+        :param y_test
+        :param y_preds
+        :param y_probs
+        :param s_model name of model
+        :param s_target name of class
+        :param i_fold index of fold
+        :param n index of TTA
+        """
         acc_test, precision, recall, f1 = None, None, None, None
 
-        if n < 5:
+        if n < 5:  # does not calculate in the ensemble iteration
             acc_test = round(accuracy_score(y_test, y_preds), 3)
             precision = round(precision_score(y_test, y_preds), 3)
             recall = round(recall_score(y_test, y_preds), 3)
@@ -1970,7 +2307,7 @@ class Classifier:
             if n == 0:
                 self.f_top = auc_score
                 self.i_top = self.l_types[n]
-                self.threshold_score_probs = auc_score - 0.05
+                self.threshold_score_probs = auc_score - 0.05  # sets AUC threshold to pass
                 self.l_formula_fold.append([y_preds, y_probs, self.l_types[n]])  # len==6 (org & ens)
             elif 0 < n < 5 and auc_score >= self.threshold_score_probs:  # without ens==5
                 self.l_formula_fold.append([y_preds, y_probs, self.l_types[n]])
@@ -1978,7 +2315,7 @@ class Classifier:
                     self.f_top = auc_score
                     self.i_top = self.l_types[n]
 
-        d_fold_metrics = {'Model': s_model, 'Class': s_target, 'Fold': i_fold,
+        d_fold_metrics = {'Model': s_model, 'Class': s_target, 'Fold': i_fold,  # writes results
                           'Train': self.l_types[0], 'Test': self.l_types[n],
                           'TestAcc': acc_test, 'AUC': auc_score,
                           'Precision': precision, 'Recall': recall, 'F1': f1, 'PRAUC': pr_auc_score,
@@ -1988,6 +2325,9 @@ class Classifier:
         self.df_metrics = pd.concat([self.df_metrics, df_fold_metrics], ignore_index=True, sort=False)
 
     def calculate_tta(self):
+        """
+        function calculates TTA ensemble score
+        """
         denom = 2
         scaler = MinMaxScaler()
         curr_top = -1
@@ -2007,7 +2347,7 @@ class Classifier:
         y_tta_probs = curr_y_probs / denom
 
         i_formula_size = len(self.l_formula_fold)  # original, bt, syn, w2v, bert
-        if i_formula_size == 5:
+        if i_formula_size == 5:  # depending on the results threshold
             denom = 8
         elif i_formula_size == 4:
             denom = 6
@@ -2017,7 +2357,7 @@ class Classifier:
             denom = 2
         elif i_formula_size == 1:
             denom = 1
-            scaler = MinMaxScaler()
+            scaler = MinMaxScaler()  # re-scales predictions
             l_outputs = self.l_formula_fold[0]
             curr_y_preds = l_outputs[0]
             curr_y_probs = l_outputs[1]
@@ -2047,13 +2387,15 @@ class Classifier:
         return [y_tta_preds, y_tta_probs]
 
     def model_cv(self):
+        # function runs TTA Ensemble Model (Novel)
+
         l_test_aug, l_preds_aug, l_probs_aug = None, None, None
 
-        # b_resample = True
-        b_resample = False
-
-        # b_sample = True
+        # b_sample = True  # sample data
         b_sample = False
+
+        # b_resample = True  # under/over sampling
+        b_resample = False
 
         self.init()
 
@@ -2066,7 +2408,7 @@ class Classifier:
 
         x, self.general, y, self.l_tta = self.init_models(b_sample)
 
-        epochs = 1
+        epochs = 1  # xlnet configurations
         # epochs = 3
         # epochs = 200
         # batch_size = 2
@@ -2099,7 +2441,7 @@ class Classifier:
             if b_resample:
                 x_curr, y_curr, i_range = self.down_sample(x_curr, y_curr, self.l_targets_merged[i_target])
 
-            s_params = 'params_' + s_target
+            s_params = 'params_' + s_target  # bayesian optimization
             p_params = self._model.validate_path(self.p_params, s_params, 'pkl')
             if not self._model.check_file_exists(p_params):
                 print('Optimizing target: ' + s_target)
@@ -2117,7 +2459,7 @@ class Classifier:
 
             # self.load_xlnet()
 
-            for i_fold, (i_train, i_test) in enumerate(k_outer.split(x_curr, y_curr)):
+            for i_fold, (i_train, i_test) in enumerate(k_outer.split(x_curr, y_curr)):  # cross-validation
                 x_train, x_test = x_curr[i_train], x_curr[i_test]
                 y_train, y_test = y_curr[i_train], y_curr[i_test]
 
@@ -2176,7 +2518,7 @@ class Classifier:
                     # l_preds_xlnet.append(y_preds_xlnet)
                     # l_preds.extend(l_preds_xlnet)
 
-                for n in range(len(l_preds)+1):
+                for n in range(len(l_preds)+1):  # metrics update
                     if n == len(l_preds):
                         l_output = self.calculate_tta()
                         l_preds.append(l_output[0])
@@ -2188,16 +2530,26 @@ class Classifier:
                 print(f'Label: {s_target}, Done fold: {i_fold}')
 
             self._model.set_df_to_csv(self.df_metrics, self.df_metrics_name, self.p_output,
-                                      s_na='', b_append=True, b_header=True)
+                                      s_na='', b_append=True, b_header=True)  # write results to output file
 
-            # if self.b_tta:
+            # if self.b_tta:  # resets data structures if randomization is performed for each CV
             #     self.l_x_tta = self.l_tta.copy()
             #     self.set_indexes(self.l_org_indexes)
 
             if i_target % 2 == 0:
                 self.init()
 
-    def init_model_image(self, height, width, dim, x, i_classes=2):
+    @staticmethod
+    def init_model_image(height, width, dim, x, i_classes=2):
+        """
+        function initializes image processing prediction model
+        :param height
+        :param width
+        :param dim
+        :param x
+        :param i_classes
+        """
+
         input_shape = (height, width, dim)
 
         # curr_model = tf.keras.applications.InceptionV3(include_top=False,
@@ -2231,6 +2583,9 @@ class Classifier:
         return curr_model
 
     def set_file_list(self):
+        """
+        function loads file paths to list
+        """
         l_files = []
         for root, dirs, files in os.walk(self.p_petct):
             for file in files:
@@ -2238,7 +2593,12 @@ class Classifier:
         return l_files
 
     def process(self, height, width, dim):
-        # TODO: cropping, grayscaling
+        """
+        function runs preprocessing of images
+        :param height
+        :param width
+        :param dim
+        """
         l_images = self._model.set_file_list()
         np_images = np.array(l_images)
         x_images = list()
@@ -2246,7 +2606,7 @@ class Classifier:
         length_x = 5
         # length_x = len(l_images)
 
-        for i in tqdm(range(0, length_x)):
+        for i in tqdm(range(0, length_x)):  # add augs
             curr_image = sitk.ReadImage(np_images[i])  # v1 - sitk
             arr_image = sitk.GetArrayFromImage(curr_image)
             curr_value = np.expand_dims(arr_image, 0)
@@ -2272,6 +2632,13 @@ class Classifier:
         return x_images
 
     def plot_active_model(self, range_epoch, l_active_scores, l_dummy_scores):
+        """
+        function plots model results
+        :param range_epoch displays scores by epochs
+        :param l_active_scores pseudo-label scores
+        :param l_dummy_scores replica scores
+        :return merged stopwords file
+        """
         plt.plot(list(range(range_epoch)), l_active_scores, label='Active Learning')
         plt.plot(list(range(range_epoch)), l_dummy_scores, label='Dummy')
         plt.xlabel('number of added samples')
@@ -2281,18 +2648,20 @@ class Classifier:
         plt.show()
 
     def model_cv_active(self):
+        """
+        function runs Active Learning on the image dataset
+        """
+
         # height, width = 64, 64
         height, width = 128, 128
         # height, width = 256, 256
         # height, width = 512, 512
         # dim = 3
         dim = 1
-
         base_size = 5
 
         p_y = self._model.validate_path(self.p_output, 'y', 'csv')
         y = pd.read_csv(p_y)
-
         x = self.process(height, width, dim)
 
         o_model_active = self.init_model_image(height, width, dim, x)
@@ -2349,43 +2718,70 @@ class Classifier:
             self.plot_active_model(range_epoch, l_active_scores, l_dummy_scores)
 
     def plot_hoc(self, scores):
-        heatmap_args = {'linewidths': 0.25, 'linecolor': '0.5', 'square': True,
-                        'cbar_ax_bbox': [0.80, 0.35, 0.04, 0.3]}
+        """
+        function plots Post-Hoc results
+        :param scores
+        """
+        heatmap_args = {'linewidths': 0.25, 'linecolor': '0.5', 'square': True, 'cbar_ax_bbox': [0.80, 0.35, 0.04, 0.3]}
         sp.sign_plot(scores, **heatmap_args)
 
     def post_hoc_test(self, df_friedman):
-        nd_hoc = np.array(df_friedman['A'], df_friedman['B'])
-        nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc.T)
+        """
+        function tuns Post-Hoc Test
+        (1) Algorithm A - Baseline Model
+        (2) Algorithm B - TTA Ensemble Model
+        (3) Algorithm C - Pre-trained TTA Ensemble Model
+        :param df_friedman dataframe of algorithms AUC scores
+        :return Post-Hoc CSV results file
+        """
+        nd_hoc1 = np.array(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'])
+        nd_hoc2 = np.array(df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+        nd_hoc1 = np.expand_dims(nd_hoc1, axis=1)
+        nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc1.T)
         print(nemenyi)
         self.plot_hoc(nemenyi)
         self._model.set_df_to_csv(nemenyi, 'post-hoc', self.p_output)
 
-    def friedman_test(self, df_friedman, alpha=0.05):
-        stat, p_value = stats.friedmanchisquare(df_friedman['A'], df_friedman['B'])
+    @staticmethod
+    def friedman_test(df_friedman, alpha=0.05):
+        """
+        function runs friedman statistical test with a chosen confidence level
+        (1) Algorithm A - Baseline Model
+        (2) Algorithm B - TTA Ensemble Model
+        (3) Algorithm C - Pre-trained TTA Ensemble Model
+        :param df_friedman algorithms AUC scores
+        :param alpha confidence level
+        :return hypothesis rejection
+        """
+        stat, p_value = stats.friedmanchisquare(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
         reject = p_value <= alpha
         if not reject:
             print(f'We do not reject H0, because no significant difference in the mean accuracy results were found.')
         else:
             print(f'We reject H0, because the models were found with different mean accuracy results')
-        print(f'For confidence level: {(1 - alpha) * 100}')
+        print(f'For confidence level: {int((1 - alpha) * 100)}')
         return reject, df_friedman
 
     def statistical_test(self):
+        """
+        function runs friedman statistical test with a chosen confidence level
+        :return hypothesis rejection
+        """
+        df_friedman = self.load_outputs()
         print('Running Friedman Statistical Test.')
         alpha = 0.05
-        p_read = self.p_output + '/' + 'friedman.csv'
-        l_algs = ['A', 'B']
-        df_friedman = pd.read_csv(p_read)
         reject = self.friedman_test(df_friedman, alpha)
-        if reject:
-            print('Running Post-Hoc Test.')
-            self.post_hoc_test(df_friedman)
+        print('Running Post-Hoc Test.')
+        self.post_hoc_test(df_friedman)
 
     def run(self):
-        self.model_cv()
-        # self.model_cv_baseline()
-        # self.model_cv_train()
-        # self.get_metrics_average()
-        # self.model_cv_active()
-        # self.statistical_test()
+        """
+        main function: runs all experiments
+        """
+        # self.model_cv()  # TTA Ensemble Model (Novel)
+        # self.model_cv_baseline()  # Baseline Model
+        # self.model_cv_train()  # Pre-trained TTA Ensemble Model (Novel)
+        # self.get_metrics_average()  # Displays Results
+        # self.model_cv_active()  # Active Learning Model
+        self.statistical_test()  # Friedman Statistical Test
         print(f'Done training and testing models.')
