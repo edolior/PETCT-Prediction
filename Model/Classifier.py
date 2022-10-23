@@ -205,14 +205,6 @@ class Classifier:
         self.l_numerics = ['Age', 'VariableAmount', 'GlucoseLevel']
         self.l_categoricals = ['Gender', 'כללית', 'מכון איזוטופים יחידה ארגונית', 'מיפוי FDG PET גלוקוז מסומן']
 
-        self.l_not_tfidf_cols = [
-            'Age', 'Gender', 'Timestamp', 'VariableAmount', 'GlucoseLevel', 'TestStartTime', 'A+B', 'C+D', 'E+F', 'H+I',
-            'G', 'J', 'K', 'L', 'M', 'N', 'כללית', 'לא ידוע', 'לאומית', 'מאוחדת', 'מוסד רפאחר', 'מכבי', 'מסוק',
-            'עצמית פניה', 'צה"ל', 'שרות בתי הסוהר', 'מחלקה כירורגית', 'מחלקה כירורגית יחידה ארגונית',
-            'מחלקה פנימית א יחידה ארגונית', 'מכון איזוטופים יחידה ארגונית', 'מיפוי FDG PETגלוקוז מסומן',
-            'מיפוי FDG PETגלוקוז מסומןCTללא חיו ב'
-        ]
-
         # self.l_models = ['ARRIVAL', 'SUMMARY', 'BREASTARMPIT', 'CHEST', 'CHESTLUNG', 'HEADNECK', 'LUNG',
         #                  'SKELETONTISSUE', 'STOMACHPELVIS', 'SETTINGS', 'DEMOGRAPHICS', 'EXAMINATIONS']
 
@@ -680,33 +672,6 @@ class Classifier:
         m_light_gbm = lgb.train(parameters, lgb_train, num_boost_round=5000, early_stopping_rounds=100)
         y_preds = m_light_gbm.predict(x_test, num_iteration=m_light_gbm.best_iteration)
         return m_light_gbm, y_preds
-
-    def get_tfidf_cols(self):
-        """
-        function returns index ranges after performing TF-IDF to the assigned sub-model
-        """
-        l_cols = list(self.df_data.columns)
-        col = 0
-        length = len(l_cols)
-        for j in range(length):
-            if l_cols[j] not in self.l_not_tfidf_cols:
-                col = j
-                break
-        if col == 0:
-            for k in range(length, -1, -1):
-                if l_cols[k - 1] not in self.l_not_tfidf_cols:
-                    col = k - 1
-                    break
-                if k == 0:
-                    break
-        s_end = l_cols[col]
-        s_st1 = l_cols[length - 1]
-        s_st2 = l_cols[0]
-        if s_st2 in self.l_not_tfidf_cols:
-            s_start = s_st1
-        else:
-            s_start = s_st2
-        return s_start, s_end
 
     @staticmethod
     def validate_type(df_data):
@@ -1595,9 +1560,9 @@ class Classifier:
             s_title = '5 Fold CV Results'
             s_axis = 'AUC'
             df_curr = self.load_outputs()
-            # df_curr_exp1 = df_curr[['AlgorithmA', 'AlgorithmB']].copy()
-            df_curr_exp2 = df_curr[['AlgorithmB', 'AlgorithmC']].copy()
-            self.plot_results(df_curr_exp2, self.l_targets_merged, s_title, s_axis)
+            df_curr_exp1 = df_curr[['AlgorithmA', 'AlgorithmB']].copy()
+            # df_curr_exp2 = df_curr[['AlgorithmB', 'AlgorithmC']].copy()
+            self.plot_results(df_curr_exp1, self.l_targets_merged, s_title, s_axis)
 
     def load_outputs(self):
         """
@@ -2781,7 +2746,7 @@ class Classifier:
         # self.model_cv()  # TTA Ensemble Model (Novel)
         # self.model_cv_baseline()  # Baseline Model
         # self.model_cv_train()  # Pre-trained TTA Ensemble Model (Novel)
-        # self.get_metrics_average()  # Displays Results
+        self.get_metrics_average()  # Displays Results
         # self.model_cv_active()  # Active Learning Model
-        self.statistical_test()  # Friedman Statistical Test
+        # self.statistical_test()  # Friedman Statistical Test
         print(f'Done training and testing models.')

@@ -704,7 +704,6 @@ class TextAug:
         function initializes umls model
         """
         num_labels = 2
-        output_mode = 'classification'
         df_data = pd.read_csv(self.p_output + '/sectors.csv')
         x_train, x_test, y_train, y_test = train_test_split(df_data, test_size=0.25, random_state=3)
         # parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
@@ -727,6 +726,7 @@ class TextAug:
             config=config,
             cache_dir=model_args.cache_dir,
         )
+
         tui_ids = self.create_cui_dict(voc_updated=model_args.med_document, tokenizer=tokenizer)
 
         def build_compute_metrics_fn(task_name: str) -> Callable[[EvalPrediction], Dict]:

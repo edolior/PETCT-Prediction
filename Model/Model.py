@@ -559,6 +559,28 @@ class Model:
         _classifier = Classifier(self, self.b_tta)
         _classifier.run()
 
+    def get_dimensions(self):
+        """
+        function returns shapes of input files
+        """
+        l_files = ['x_sectors', 'x_synonymheb', 'x_backtrans', 'x_w2v']
+        for p_file in l_files:
+            p_curr = self.validate_path(self.p_aug, p_file, 'csv')
+            filename = self.get_filename(p_curr)
+
+            cmd = 'wc -l ' + p_curr  # (v1)
+            rows = int(subprocess.check_output(cmd, shell=True).split()[0]) - 1
+            l_headers = pd.read_csv(p_curr, nrows=1).columns.tolist()
+            cols = len(l_headers)
+            print(f'File: {filename}, \n Rows: {int(rows)}, \n Columns: {int(cols)}')
+
+            # df = pd.read_csv(p_curr)  # (v2)
+            # # df = pd.read_csv(p_curr, usecols=[i for i in range(5)])
+            # rows = df.shape[0]
+            # cols = df.shape[1]
+            # del df
+            # print(f'File: {filename}, \n Rows: {int(rows)}, \n Columns: {int(cols)}')
+
     def merge_stopwords(self, file1, file2):
         """
         function merges stopword files
@@ -590,29 +612,8 @@ class Model:
             df_data = pd.read_csv(self.p_features_merged)
             self._report.data_percentage(df_data, False)
             self._report.class_count(df_data)
+            self._report.analysis(df_data)
             self.get_dimensions()
-
-    def get_dimensions(self):
-        """
-        function returns shapes of input files
-        """
-        l_files = ['x_sectors', 'x_synonymheb', 'x_backtrans', 'x_w2v']
-        for p_file in l_files:
-            p_curr = self.validate_path(self.p_aug, p_file, 'csv')
-            filename = self.get_filename(p_curr)
-
-            cmd = 'wc -l ' + p_curr  # (v1)
-            rows = int(subprocess.check_output(cmd, shell=True).split()[0]) - 1
-            l_headers = pd.read_csv(p_curr, nrows=1).columns.tolist()
-            cols = len(l_headers)
-            print(f'File: {filename}, \n Rows: {int(rows)}, \n Columns: {int(cols)}')
-
-            # df = pd.read_csv(p_curr)  # (v2)
-            # # df = pd.read_csv(p_curr, usecols=[i for i in range(5)])
-            # rows = df.shape[0]
-            # cols = df.shape[1]
-            # del df
-            # print(f'File: {filename}, \n Rows: {int(rows)}, \n Columns: {int(cols)}')
   
     def run(self):  # MAIN FLOW
         """

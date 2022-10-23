@@ -37,6 +37,14 @@ class Report:
         self.l_target_cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']
         self.l_target_cols_merged = ['A+B', 'C+D', 'E+F', 'G', 'H+I', 'J', 'K', 'L', 'M', 'N']
 
+        self.l_not_tfidf_cols = [
+            'Age', 'Gender', 'Timestamp', 'VariableAmount', 'GlucoseLevel', 'TestStartTime', 'A+B', 'C+D', 'E+F', 'H+I',
+            'G', 'J', 'K', 'L', 'M', 'N', 'כללית', 'לא ידוע', 'לאומית', 'מאוחדת', 'מוסד רפאחר', 'מכבי', 'מסוק',
+            'עצמית פניה', 'צה"ל', 'שרות בתי הסוהר', 'מחלקה כירורגית', 'מחלקה כירורגית יחידה ארגונית',
+            'מחלקה פנימית א יחידה ארגונית', 'מכון איזוטופים יחידה ארגונית', 'מיפוי FDG PETגלוקוז מסומן',
+            'מיפוי FDG PETגלוקוז מסומןCTללא חיו ב'
+        ]
+
     def data_percentage(self, df_data, b_this_cols):
         """
         function returns percentage of missing data
@@ -183,3 +191,55 @@ class Report:
             p_save = self.p_output + '/' + fig_name + '.png'
 
         plt.savefig(p_save, bbox_inches='tight')
+
+    def get_tfidf_cols(self, df_data):
+        """
+        function returns index ranges after performing TF-IDF to the assigned sub-model
+        :param df_data
+        """
+        l_cols = list(df_data.columns)
+        col = 0
+        length = len(l_cols)
+        for j in range(length):
+            if l_cols[j] not in self.l_not_tfidf_cols:
+                col = j
+                break
+        if col == 0:
+            for k in range(length, -1, -1):
+                if l_cols[k - 1] not in self.l_not_tfidf_cols:
+                    col = k - 1
+                    break
+                if k == 0:
+                    break
+        s_end = l_cols[col]
+        s_st1 = l_cols[length - 1]
+        s_st2 = l_cols[0]
+        if s_st2 in self.l_not_tfidf_cols:
+            s_start = s_st1
+        else:
+            s_start = s_st2
+        return s_start, s_end
+
+    def analysis(self, df_data):
+        """
+        function performs statistical analysis on the dataset
+        :param df_data
+        """
+        l_appendix = ['Age', 'Gender',  'GlucoseLevel', 'VariableAmount']
+        d_calc = dict()
+        for curr_col in l_appendix:
+            if curr_col != 'Gender':
+                mean_var = df_data[curr_col].mean()
+                d_calc[curr_col] = round(mean_var, 3)
+            if curr_col == 'Gender':
+                count_m = df_data[curr_col].sum()
+                d_calc['Male'] = int(count_m)
+                d_calc['Female'] = int(df_data.shape[0] - count_m)
+            if curr_col == 'Age' or curr_col == 'VariableAmount' or curr_col == 'GlucoseLevel':
+                min = df_data[curr_col].min()
+                max = df_data[curr_col].max()
+                d_calc['Min'+curr_col] = int(min)
+                d_calc['Max'+curr_col] = int(max)
+        for key, value in d_calc.items():
+            print(f'Feature: {key}: {value}.')
+        self._model.set_dict_to_csv(d_calc, 'appendix', self.p_output)
