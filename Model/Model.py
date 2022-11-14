@@ -531,8 +531,9 @@ class Model:
         # i_features_sectors, i_features_settings = None, None
         # i_features_sectors, i_features_settings = 10000, 50
         # i_features_sectors, i_features_settings = 1000, 25
+        i_features_sectors, i_features_settings = 500, 25
         # i_features_sectors, i_features_settings = 100, 10
-        i_features_sectors, i_features_settings = 20, 10
+        # i_features_sectors, i_features_settings = 20, 10
         # i_features_sectors, i_features_settings = 10, 5
 
         _aug = TextAug(self)
