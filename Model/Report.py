@@ -29,10 +29,12 @@ class Report:
 
         self.p_project = os.path.dirname(os.path.dirname(__file__))
         self.p_output = self.p_project + r'\output\output_parser'
+        self.p_classifier = self.p_project + r'\output\output_classifier'
 
         if self._model.b_vpn:
             self.p_project = self._model.set_vpn_dir(self.p_project)
             self.p_output = self._model.set_vpn_dir(self.p_output)
+            self.p_classifier = self._model.set_vpn_dir(self.p_classifier)
 
         self.l_target_cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']
         self.l_target_cols_merged = ['A+B', 'C+D', 'E+F', 'G', 'H+I', 'J', 'K', 'L', 'M', 'N']
@@ -169,6 +171,28 @@ class Report:
             p_save = self.p_output + '/' + 'values_distribution' + '.png'
 
         fig1.savefig(p_save, dpi=600)
+
+    def get_ratios(self):
+        """
+        function returns ratios
+        """
+        y_curr = pd.read_csv(self.p_classifier + '/y.csv')
+        df_majority, df_minority = None, None
+        for curr_col in y_curr[self.l_target_cols_merged]:
+            s_target = curr_col
+            if isinstance(y_curr, pd.Series):
+                df_majority = y_curr.where(y_curr == 0)
+                df_minority = y_curr.where(y_curr == 1)
+            elif isinstance(y_curr, pd.DataFrame):
+                df_majority = y_curr[y_curr[s_target] == 0]
+                df_minority = y_curr[y_curr[s_target] == 1]
+            i_ratio1 = df_minority.shape[0]
+            i_ratio0 = df_majority.shape[0]
+            i_class1_ratio = int(i_ratio1/i_ratio1)
+            i_class0_ratio = i_ratio0/i_ratio1
+            i_diff_ratio = i_class0_ratio - i_class1_ratio
+            i_class0_ratio = float("{:.2f}".format(i_class0_ratio))
+            print(f'Current ratio for label {s_target} Class 1:Class 0 is: \n {i_class1_ratio}:{i_class0_ratio}')
 
     def plot_curve(self, x_value, y_value, func_label, x_label, y_label, fig_name):
         """

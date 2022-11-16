@@ -613,6 +613,7 @@ class Model:
             df_data = pd.read_csv(self.p_features_merged)
             self._report.data_percentage(df_data, False)
             self._report.class_count(df_data)
+            self._report.get_ratios()
             self._report.analysis(df_data)
             self.get_dimensions()
   

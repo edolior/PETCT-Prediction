@@ -2452,9 +2452,9 @@ class Classifier:
 
         # x, y = self.randomize_data(x, y)
 
-        # _max_features = 93000  # 100 for each sectors
+        _max_features = 93000  # 100 for each sectors
         # _max_features = 50000
-        _max_features = 150000
+        # _max_features = 150000
 
         _ngram = (1, 2)
         # _ngram = (1, 3)
