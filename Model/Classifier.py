@@ -5,6 +5,7 @@ import numpy as np
 from numpy import sort
 from statistics import mean
 from datetime import datetime
+import copy
 import joblib
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -60,6 +61,7 @@ from imblearn.under_sampling import RandomUnderSampler
 
 import tensorflow as tf
 from tensorflow import keras
+# from tensorflow import layers
 from tensorflow.keras.models import Sequential, Model, model_from_json
 from tensorflow.keras.layers import Dense, Dropout, Flatten, InputLayer, Conv2D, BatchNormalization, MaxPool2D
 from tensorflow.keras.layers import Input, MaxPooling2D, UpSampling2D, concatenate, Conv2DTranspose, Lambda
@@ -69,7 +71,6 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow.keras.applications.inception_v3 import InceptionV3, preprocess_input
 from tensorflow.keras import backend as K
-# from tensorflow import layers
 # from transformers import TFXLNetModel, XLNetTokenizer
 # import tensorflow_addons as tfa
 
@@ -293,9 +294,8 @@ class Classifier:
         self.l_cols_cm = [0, 1, 'Model', 'Class', 'Train', 'Test']
         self.l_cols_configs = ['Model', 'Train', 'Test', 'i_fold', 'x_train', 'y_train', 'x_test', 'y_test', 'x', 'y']
         self.l_cols_stacking = ['Class', 'Fold', 'Model', 'Test', 'AVG_Model', 'AVG_All']
-
         self.general = None
-
+        self.x_general = None
         self.curr_timestamp = datetime.now().strftime('%m_%d_%Y_%H_%M_%S')
         self.df_metrics_name = 'df_metrics' + '_' + self.curr_timestamp
         self.df_metrics_models_name = 'df_metrics_models' + '_' + self.curr_timestamp
@@ -916,15 +916,9 @@ class Classifier:
             self._model.set_df_to_csv(y, 'y', self.p_output, s_na='', b_append=False, b_header=True)
 
         if self.b_tta:
-            self.l_x_tta = self.init_models_tta(b_sample)
-            l_curr_x_mrg = list()
-            for curr_tta in self.l_x_tta:
-                l_curr_x_mrg.append(curr_tta)
-            self.l_x_tta = l_curr_x_mrg.copy()
-        else:
-            l_curr_x_mrg = None
+            self.l_tta = self.init_models_tta(b_sample)
 
-        return x, general, y, l_curr_x_mrg
+        return x, general, y
 
     def show_values(self, axs, results, orient, space=.01):
         """
@@ -1084,14 +1078,19 @@ class Classifier:
         }
         return d_indexes
 
-    def down_sample(self, x_curr, y_curr, s_target):
+    def down_sample(self, x_curr, y, s_target):
         """
         function performs down-sampling: fixes ration by erasing occurrences of non-diseased patients
         :param x_curr
-        :param y_curr
+        :param y
         :param s_target class name
         """
-        threshold_ratio = 10
+        y_curr = y.copy()
+
+        threshold_ratio = 2
+        # threshold_ratio = 10
+        # threshold_ratio = 20
+
         df_majority, df_minority = None, None
 
         i_ratio1_new, i_ratio0_new = None, None
@@ -1102,9 +1101,10 @@ class Classifier:
             df_majority = y_curr[y_curr == 0]
             df_minority = y_curr[y_curr == 1]
         elif isinstance(y_curr, pd.Series):
-            df_majority = y_curr.where(y_curr == 0)
-            df_minority = y_curr.where(y_curr == 1)
-        elif isinstance(y_curr, pd.DataFrame):
+            # df_majority = y_curr.where(y_curr == 0).notnull()
+            # df_minority = y_curr.where(y_curr == 1).notnull()
+            y_curr = pd.DataFrame(y_curr, columns=[s_target]).copy()
+        if isinstance(y_curr, pd.DataFrame):
             df_majority = y_curr[y_curr[s_target] == 0]
             df_minority = y_curr[y_curr[s_target] == 1]
 
@@ -1116,8 +1116,56 @@ class Classifier:
         i_class0_ratio = float("{:.2f}".format(i_class0_ratio))
         print(f'Current ratio for label {s_target} Class 1:Class 0 is: \n {i_class1_ratio}:{i_class0_ratio}')
 
-        if i_diff_ratio > threshold_ratio:  # 1:100 imbalance -> 1:10 | {'E+F': 30, 'G': 12, 'K': 20, 'M': 131, 'N': 18}
+        if s_target == 'A+B' or s_target == 'C+D':
+            if isinstance(x_curr, pd.Series):
+                x_curr = pd.DataFrame(x_curr)
+            l_cols_x = list(x_curr.columns)
+            df_org = x_curr.merge(y_curr, left_index=True, right_index=True)
 
+            f_under = int(i_ratio0 / threshold_ratio)
+            _n = i_ratio1 - f_under
+
+            arr_indexes_org = df_org.index
+            np_indexes_org = arr_indexes_org.to_numpy()
+            l_indexes_org = list(np_indexes_org)
+
+            # df_org = df_org.drop(np.random.choice(df_org.index[df_org[s_target].eq(1)], _n))  # random deletion
+            df_org = df_org.drop(df_org[df_org[s_target].eq(1)].sample(n=_n).index)  # deletion
+            df_org = df_org.sample(frac=1)  # shuffle
+
+            arr_indexes_new = df_org.index
+            np_indexes_new = arr_indexes_new.to_numpy()
+            l_indexes_new = list(np_indexes_new)
+
+            l_indexes_diff = list(set(l_indexes_org) - set(l_indexes_new))
+
+            for i in range(len(self.l_x_tta)):
+                self.l_x_tta[i].drop(self.l_x_tta[i].index[l_indexes_diff], inplace=True)
+                self.l_x_tta[i] = self.l_x_tta[i].reindex(l_indexes_new)
+                self.l_x_tta[i].reset_index(inplace=True, drop=True)
+
+            self.x_general.drop(self.x_general.index[l_indexes_diff], inplace=True)
+            self.x_general = self.x_general.reindex(l_indexes_new)
+            self.x_general.reset_index(inplace=True, drop=True)
+
+            df_org.reset_index(inplace=True, drop=True)
+
+            x_new = df_org[l_cols_x].copy()
+            y_new = df_org[s_target].copy()
+
+            x_new = x_new['Text'].copy()
+            # y_new = df_org.loc[:, s_target].copy()
+
+            i_ratio1_new = np.sum(y_new)
+            i_ratio0_new = y_new.size - i_ratio1_new
+            i_class1_ratio_new = int(i_ratio1_new / i_ratio1_new)
+            i_class0_ratio_new = i_ratio0_new / i_ratio1_new
+            i_class0_ratio_new = float("{:.2f}".format(i_class0_ratio_new))
+            print(f'New ratio for label {s_target} Class 1:Class 0 is: \n {i_class1_ratio_new}:{i_class0_ratio_new}')
+
+        elif i_diff_ratio > threshold_ratio:  # 1:100 imbalance
+            #  {'A+B': [1:0.5], 'C+D': [1:1], 'E+F': [1:31.5], , 'G': [1:13], 'H+I': [1:6],
+            #  'J': [1:6], 'K': [1:20.5], 'L': [1:6.5], 'M': [1:131], 'N': [1:18.5]
             if i_ratio1 < 100:
                 # (1.1) enables training by augmentations
                 # {'E+F': [53, 1671], 'K': [80, 1644], 'M': [13, 1711], 'N': [88, 1636]}  -> overfits
@@ -1344,10 +1392,10 @@ class Classifier:
             y_curr = pd.DataFrame(data=y_curr)
         l_cols_y = list(y_curr.columns)
         if len(l_cols_y) > 2:
-            b_org_indexes = True
+            b_org_indexes = True  # prior shuffle before cv
         df_org = x_curr.merge(y_curr, left_index=True, right_index=True)
         df_rnd = df_org.sample(frac=1)
-        self.set_indexes(df_rnd, b_org_indexes)
+        self.set_indexes(df_rnd, b_org_indexes)  # original indexes are saved after prior cv shuffle
         df_rnd.reset_index(inplace=True, drop=True)
         x_rnd = df_rnd[l_cols_x].copy()
         y_rnd = df_rnd[l_cols_y].copy()
@@ -1755,7 +1803,7 @@ class Classifier:
         i_range = None
         d_stack_scores = dict()
 
-        x, _, y, self.l_tta = self.init_models()
+        x, general, y = self.init_models()
 
         self.get_models_per_model()
 
@@ -1932,7 +1980,8 @@ class Classifier:
             l_classes_names.append(s_model)
 
             if self.b_tta:
-                self.l_x_tta = self.l_tta.copy()
+                self.l_x_tta = copy.deepcopy(self.l_tta)
+                self.x_general = copy.deepcopy(self.general)
                 self.set_indexes(self.l_org_indexes)
             # end of target
 
@@ -1971,11 +2020,11 @@ class Classifier:
                               'מכון איזוטופים יחידה ארגונית': '', 'מיפוי FDG PET גלוקוז מסומן': ''}
             self.remove_sparse_features(f_percent, d_force_remove)
 
-        x, self.general, y, _ = self.init_models(b_sample)
+        x, self.general, y = self.init_models(b_sample)
 
         # x, y = self.randomize_data(x, y)
 
-        # _max_features = 93000  # 100 for each sectors
+        # _max_features = 93000  # 1000 for each sectors
         # _max_features = 50000
         _max_features = 150000
 
@@ -2062,11 +2111,11 @@ class Classifier:
                               'מכון איזוטופים יחידה ארגונית': '', 'מיפוי FDG PET גלוקוז מסומן': ''}
             self.remove_sparse_features(f_percent, d_force_remove)
 
-        x, self.general, y, self.l_tta = self.init_models(b_sample)
+        x, self.general, y = self.init_models(b_sample)
 
         # x, y = self.randomize_data(x, y)
 
-        # _max_features = 93000  # 100 for each sectors
+        # _max_features = 93000  # 1000 for each sectors
         # _max_features = 50000
         _max_features = 150000
 
@@ -2082,7 +2131,7 @@ class Classifier:
 
             y_curr = y.iloc[:, i_target].copy()  # by value and not by pointer
             x_curr = x['Text'].copy()
-            self.l_x_tta = self.l_tta.copy()
+            self.l_x_tta = copy.deepcopy(self.l_tta)
 
             s_target = self.l_targets_merged[i_target]
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
@@ -2191,7 +2240,7 @@ class Classifier:
                                       s_na='', b_append=True, b_header=True)
 
             # if self.b_tta:
-            #     self.l_x_tta = self.l_tta.copy()
+            #     self.l_x_tta = copy.deepcopy(self.l_tta)
             #     self.set_indexes(self.l_org_indexes)
 
             # if i_target % 2 == 0:
@@ -2438,7 +2487,7 @@ class Classifier:
                               'מכון איזוטופים יחידה ארגונית': '', 'מיפוי FDG PET גלוקוז מסומן': ''}
             self.remove_sparse_features(f_percent, d_force_remove)
 
-        x, self.general, y, self.l_tta = self.init_models(b_sample)
+        x, self.general, y = self.init_models(b_sample)
 
         # epochs = 1  # xlnet configurations
         # epochs = 3
@@ -2450,9 +2499,9 @@ class Classifier:
         # batch_size = None
         i_val_split = 0.15
 
-        # x, y = self.randomize_data(x, y)
+        # x, y = self.randomize_data(x, y)  # prior shuffle
 
-        _max_features = 93000  # 100 for each sectors
+        _max_features = 93000  # 1000 for each sectors
         # _max_features = 50000
         # _max_features = 150000
 
@@ -2465,10 +2514,10 @@ class Classifier:
 
         for i_target in tqdm(range(len(self.l_targets_merged))):
             # d = {'A+B': 0, 'C+D': 1, 'E+F': 2, 'G': 3, 'H+I': 4, 'J': 5, 'K': 6, 'L': 7, 'M': 8, 'N': 9}
-
             y_curr = y.iloc[:, i_target].copy()  # by value and not by pointer
             x_curr = x['Text'].copy()
-            self.l_x_tta = self.l_tta.copy()
+            self.l_x_tta = copy.deepcopy(self.l_tta)
+            self.x_general = copy.deepcopy(self.general)
 
             s_target = self.l_targets_merged[i_target]
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
@@ -2476,7 +2525,7 @@ class Classifier:
             top_score = float('-inf')  # chosen score: precision-recall auc
             i_range = None
 
-            if b_resample:
+            if b_resample and i_target < 2:
                 x_curr, y_curr, i_range = self.down_sample(x_curr, y_curr, self.l_targets_merged[i_target])
 
             s_params = 'params_' + s_target  # bayesian optimization
@@ -2501,7 +2550,7 @@ class Classifier:
                 x_train, x_test = x_curr[i_train], x_curr[i_test]
                 y_train, y_test = y_curr[i_train], y_curr[i_test]
 
-                x_general_train, x_general_test = self.general.iloc[i_train], self.general.iloc[i_test]
+                x_general_train, x_general_test = self.x_general.iloc[i_train], self.x_general.iloc[i_test]
                 # x_general_train, x_general_test = self.impute_mean(x_general_train, x_general_test)
                 x_general_train, x_general_test = self.impute_knn(x_general_train, x_general_test)
                 # x_general_train, x_general_test = self.impute_mice(x_general_train, x_general_test, y_train)
@@ -2570,9 +2619,10 @@ class Classifier:
             self._model.set_df_to_csv(self.df_metrics, self.df_metrics_name, self.p_output,
                                       s_na='', b_append=True, b_header=True)  # write results to output file
 
-            # if self.b_tta:  # resets data structures if randomization is performed for each CV
-            #     self.l_x_tta = self.l_tta.copy()
-            #     self.set_indexes(self.l_org_indexes)
+            if self.b_tta:  # resets data structures if randomization is performed for each CV
+                self.l_x_tta = copy.deepcopy(self.l_tta)
+                self.x_general = copy.deepcopy(self.general)
+                # self.set_indexes(self.l_org_indexes)  # if prior shuffle was applied
 
             # if i_target % 2 == 0:
                 # self.init()

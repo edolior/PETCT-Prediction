@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="edoli@132.72.80.145:22" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="edoli@132.72.65.239:22" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="edoli@132.72.40.122:22">
         <serverdata>
@@ -261,6 +261,13 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="edoli@132.72.46.240:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_414" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="edoli@132.72.46.245:22">
         <serverdata>
           <mappings>
@@ -349,6 +356,20 @@
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.65.236:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_351" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.65.239:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_985" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
