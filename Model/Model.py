@@ -522,19 +522,14 @@ class Model:
         function runs TextAug class pipeline
         """
 
-        # l_exp_sectors = [10, 20, 100, 1000, 10000, None]
-        # l_exp_settings = [5, 10, 10, 25, 50, None]
+        # l_exp_sectors = [10, 20, 100, 500, 1000, 10000, None]
+        # l_exp_settings = [5, 10, 15, 20, 25, 50, None]
         # for i in range(len(l_exp_sectors)):
         #     i_features_sectors = l_exp_sectors[i]
         #     i_features_settings = l_exp_settings[i]
 
-        # i_features_sectors, i_features_settings = None, None
+        i_features_sectors, i_features_settings = None, None
         # i_features_sectors, i_features_settings = 10000, 50
-        # i_features_sectors, i_features_settings = 1000, 25
-        i_features_sectors, i_features_settings = 500, 25
-        # i_features_sectors, i_features_settings = 100, 10
-        # i_features_sectors, i_features_settings = 20, 10
-        # i_features_sectors, i_features_settings = 10, 5
 
         _aug = TextAug(self)
 

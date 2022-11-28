@@ -1562,9 +1562,13 @@ class Classifier:
             # version, experiment = '10', 'train'
             # version, experiment = '11', 'xlnet'
             # version, experiment = '12', 'umls'
-            version, experiment = '13', 'tfidf_ngram'
+            # version, experiment = '13', 'tfidf_ngram'
+            # version, experiment = '14', 'tfidf_train'
+            # version, experiment = '15', 'tfidf_baseline'
+            # version, experiment = '16', 'tfidf_ngram_1000_10000'
+            version, experiment = '17', 'tfidf_ratio_1_2'
 
-            if experiment == 'tfidf_ngram':
+            if 'tfidf' in experiment:
                 p_dir = self.p_output+'/'+experiment
                 for root, dirs, files in os.walk(p_dir):
                     for file in files:
@@ -2501,9 +2505,11 @@ class Classifier:
 
         # x, y = self.randomize_data(x, y)  # prior shuffle
 
-        _max_features = 93000  # 1000 for each sectors
+        # _max_features = 93000  # 1000 for each sectors
         # _max_features = 50000
         # _max_features = 150000
+        # _max_features = 10000
+        _max_features = 1000
 
         _ngram = (1, 2)
         # _ngram = (1, 3)
