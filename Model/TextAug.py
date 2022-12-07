@@ -27,6 +27,7 @@ from transformers import (HfArgumentParser, Trainer, TrainingArguments)
 from keras_xlnet import Tokenizer, load_trained_model_from_checkpoint, ATTENTION_TYPE_BI
 from torch.nn import functional as F
 import torch
+from transformers import BertTokenizer, BertForMaskedLM
 import umls_api
 
 from Model.word2vec.word2vec_hebrew.api.hebrew_w2v_api import HebrewSimilarWords
@@ -79,6 +80,8 @@ class TextAug:
         self.p_wiki_heb_txt = self.p_output + r'\wiki.he.text'
         self.p_glove = self.p_output + r'\wiki.he.text'
         self.p_xlnet = self._model.p_resource + r'\word2vec\xlnet_cased_L-24_H-1024_A-16'
+        self.p_alephbert = self._model.p_resource + r'\alephbertgimmel\ckpt_69200--Max128Seq'
+        # self.p_alephbert = self._model.p_resource + r'\alephbertgimmel\ckpt_73780--Max512Seq'
 
         if self._model.b_vpn:
             self.p_input = self._model.set_vpn_dir(self.p_input)
@@ -95,6 +98,7 @@ class TextAug:
             self.p_wiki_heb_bin = self._model.set_vpn_dir(self.p_wiki_heb_bin)
             self.p_wiki_heb_txt = self._model.set_vpn_dir(self.p_wiki_heb_txt)
             self.p_xlnet = self._model.set_vpn_dir(self.p_xlnet)
+            self.p_alephbert = self._model.set_vpn_dir(self.p_alephbert)
 
         self.translator = google_translator()
         self.get_synonym = naw.SynonymAug(aug_src='wordnet')
@@ -122,7 +126,8 @@ class TextAug:
 
         # self.max_features = 100000
         # self.max_features = 99500
-        self.max_features = 93000
+        # self.max_features = 93000
+        self.max_features = 50000
         # self.max_features = None
 
         self.df_data = None
@@ -133,6 +138,7 @@ class TextAug:
         self.df_w2v = None
         self.df_backtrans = None
         self.m_w2v = None
+        self.m_tokenizer = None
         self.vocab_w2v = None
         self.vocab_tfidf = None
 
@@ -458,11 +464,18 @@ class TextAug:
             for i_term in range(len(l_w2v_terms)):
                 term = l_w2v_terms[i_term]
                 if i_term % i_modulo == 0:
-                    try:
-                        l_preds = self.m_w2v.most_similar(term, topn=i_top)
-                        i_random = randrange(i_top)
-                        curr_tuple = l_preds[i_random]
-                        chosen_candidate = curr_tuple[0]
+                    try:  # the [MASK] is the 4th token (including [CLS])
+                        if self.m_tokenizer is not None:  # AlephBertGimmel aug
+                            # sentence = 'דני הלך לבית [MASK] היום.'
+                            s_proceeding_window = ' '.join(l_w2v_terms[:i_term]) + '[MASK]'
+                            output = self.m_w2v(self.m_tokenizer.encode(s_proceeding_window, return_tensors='pt'))
+                            chosen_candidate = torch.topk(output.logits[0, 4, :], 5)[1]
+                            print('\n'.join(self.m_tokenizer.convert_ids_to_tokens(chosen_candidate)))
+                        else:  # fasttext, w2v, bert augs
+                            l_preds = self.m_w2v.most_similar(term, topn=i_top)
+                            i_random = randrange(i_top)
+                            curr_tuple = l_preds[i_random]
+                            chosen_candidate = curr_tuple[0]
                     except KeyError:
                         chosen_candidate = term
                     s_w2v += chosen_candidate + ' '
@@ -858,40 +871,39 @@ class TextAug:
         :param col_key column of input
         :param w2v_col_name file name
         """
-
-        # self.curr_w2v_name = 'm_word2vec_100'
-        # self.curr_w2v_name = 'm_word2vec_300'
-        # self.curr_w2v_name = 'm_word2vec_1000'
-
-        # (1) gensim: word2vec (input corpus)
-        # p_m_w2v = self._model.validate_path(self.p_output, self.curr_w2v_name, 'model')
-        # self.word2vec_load(p_m_w2v)
-
-        # (2) nlp-aug: fasttext (wiki)
-        # self.m_w2v = naw.WordEmbsAug(model_type='fasttext', model_path=self.p_wiki_heb_vec)
-
-        # (3) nlp-aug: word2vec (wiki)
-        # (3.1)
-        # self.m_w2v = naw.WordEmbsAug(model_type='word2vec', model_path=self.p_wiki_heb_txt)
-
-        # (3.2) gensim: word2vec (wiki)
-        # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_bin, binary=True, unicode_errors='ignore', encoding='utf8')
-        # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_vec, binary=False, unicode_errors='ignore', encoding='utf8')
-
-        # (3.3) gensim: word2vec (wiki)
-        # self.m_w2v = Word2Vec.load(self.p_wiki_heb_txt)  # .bin / .txt
-
-        # (4) nlp-aug: glove (wiki)
-        # self.m_w2v = naw.WordEmbsAug(model_type='glove', model_path=self.p_wiki_heb_txt)
-
-        # (5) nlp-aug: BERT
-        self.m_w2v = naw.ContextualWordEmbsAug(model_path='bert-base-multilingual-uncased', aug_p=0.1)  # tf 2.3
-
         p_w2v_file = self._model.validate_path(self.p_tta, w2v_col_name, 'csv')
         if self._model.check_file_exists(p_w2v_file):
             self.i_invalid = 0
-            print(f'Finished Augmentation: Word2Vec {w2v_col_name}.')
+            print(f'Word2Vec File {w2v_col_name} Found.')
         else:
+            # self.curr_w2v_name = 'm_word2vec_100'
+            # self.curr_w2v_name = 'm_word2vec_300'
+            # self.curr_w2v_name = 'm_word2vec_1000'
+
+            # (1) gensim: word2vec (input corpus)
+            # p_m_w2v = self._model.validate_path(self.p_output, self.curr_w2v_name, 'model')
+            # self.word2vec_load(p_m_w2v)
+
+            # (2) nlp-aug: fasttext (wiki)
+            # self.m_w2v = naw.WordEmbsAug(model_type='fasttext', model_path=self.p_wiki_heb_vec)
+
+            # (3) nlp-aug: word2vec (wiki)
+            # (3.1)
+            # self.m_w2v = naw.WordEmbsAug(model_type='word2vec', model_path=self.p_wiki_heb_txt)
+
+            # (3.2) gensim: word2vec (wiki)
+            # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_bin, binary=True, unicode_errors='ignore', encoding='utf8')
+            # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_vec, binary=False, unicode_errors='ignore', encoding='utf8')
+
+            # (3.3) gensim: word2vec (wiki)
+            # self.m_w2v = Word2Vec.load(self.p_wiki_heb_txt)  # .bin / .txt
+
+            # (4) nlp-aug: glove (wiki)
+            # self.m_w2v = naw.WordEmbsAug(model_type='glove', model_path=self.p_wiki_heb_txt)
+
+            # (5) nlp-aug: BERT
+            self.m_w2v = naw.ContextualWordEmbsAug(model_path='bert-base-multilingual-uncased', aug_p=0.1)  # tf 2.3
+
             self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), w2v_col_name, self.p_tta, s_na='',
                                       b_append=True, b_header=True)
             self.i_invalid = 0
@@ -931,7 +943,7 @@ class TextAug:
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
         if self._model.check_file_exists(p_backtrans_file):
             self.i_invalid = 0
-            print(f'Finished Augmentation: Back Translations {backtrans_col_name}.')
+            print(f'Back Translation File {backtrans_col_name} Found.')
         else:
             self.i_invalid = 0
             # (1) no chunks
@@ -968,28 +980,33 @@ class TextAug:
         :param col_key column of input
         :param synheb_col_name file name
         """
-        self.i_invalid = 0
-        self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), synheb_col_name, self.p_tta, s_na='',
-                                  b_append=True, b_header=True)
-        with open(self.p_sectors) as read_chunk:
-            chunk_iter = pd.read_csv(read_chunk, chunksize=500)
-            tqdm.pandas()
-            for df_curr_chunk in tqdm(chunk_iter):
-                if not df_curr_chunk.empty:
-                    s_curr_to_syn_heb = df_curr_chunk[col_key].copy()
-                    s_curr_to_syn_heb = s_curr_to_syn_heb.fillna(value='')
-                    s_curr_syn_heb = s_curr_to_syn_heb.progress_apply(self.synonym_apply)
+        p_syn_heb_file2 = self._model.validate_path(self.p_tta, synheb_col_name, 'csv')
+        if self._model.check_file_exists(p_syn_heb_file2):
+            self.i_invalid = 0
+            print(f'Hebrew Synonyms File {synheb_col_name} Found.')
+        else:
+            self.i_invalid = 0
+            self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), synheb_col_name, self.p_tta, s_na='',
+                                      b_append=True, b_header=True)
+            with open(self.p_sectors) as read_chunk:
+                chunk_iter = pd.read_csv(read_chunk, chunksize=500)
+                tqdm.pandas()
+                for df_curr_chunk in tqdm(chunk_iter):
+                    if not df_curr_chunk.empty:
+                        s_curr_to_syn_heb = df_curr_chunk[col_key].copy()
+                        s_curr_to_syn_heb = s_curr_to_syn_heb.fillna(value='')
+                        s_curr_syn_heb = s_curr_to_syn_heb.progress_apply(self.synonym_apply)
 
-                    # (1) with validation
-                    df_syn = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
-                    df_syn = df_syn.merge(s_curr_syn_heb, left_index=True, right_index=True)
+                        # (1) with validation
+                        df_syn = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
+                        df_syn = df_syn.merge(s_curr_syn_heb, left_index=True, right_index=True)
 
-                    # (2) no validation
-                    # df_syn = pd.DataFrame(s_curr_syn_en)
+                        # (2) no validation
+                        # df_syn = pd.DataFrame(s_curr_syn_en)
 
-                    self._model.set_df_to_csv(df_syn, synheb_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
-        self._model.set_dict_to_csv(self.d_invalid, 'invalid_hebrew_synonym_terms', self.p_output)
-        print(f'Hebrew synonyms invalid terms: {int(self.i_invalid)}')
+                        self._model.set_df_to_csv(df_syn, synheb_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
+            self._model.set_dict_to_csv(self.d_invalid, 'invalid_hebrew_synonym_terms', self.p_output)
+            print(f'Hebrew synonyms invalid terms: {int(self.i_invalid)}')
 
     def aug_synonym(self, col_key, trans_col_name, syn_col_name, syn_heb_col_name):
         """
@@ -1002,11 +1019,9 @@ class TextAug:
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
         p_syn_file = self._model.validate_path(self.p_tta, syn_col_name, 'csv')
         p_syn_heb_file = self._model.validate_path(self.p_tta, syn_heb_col_name, 'csv')
-
         if self._model.check_file_exists(p_syn_heb_file):
             self.i_invalid = 0
-            print(f'Finished Augmentation: Hebrew Synonyms {syn_heb_col_name}.')
-
+            print(f'Hebrew Synonyms File {syn_heb_col_name} Found.')
         elif self._model.check_file_exists(p_syn_file):  # (1) if only Synonym English file exists -> Translate to Heb
             self.i_invalid = 0
             self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), syn_heb_col_name, self.p_tta, s_na='', b_append=True, b_header=True)
@@ -1028,7 +1043,6 @@ class TextAug:
 
                         self._model.set_df_to_csv(df_curr_syn_heb, syn_heb_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
             print(f'Finished Augmentation: Hebrew Synonyms {syn_heb_col_name}, with {self.i_invalid} invalid terms.')
-
         else:
             self.i_invalid = 0
             self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), syn_col_name, self.p_tta, s_na='', b_append=True, b_header=True)
@@ -1081,7 +1095,7 @@ class TextAug:
         # print(self.translator.LANGUAGES) -> English = 'en', Hebrew = 'heb' or 'iw'
         p_trans_file = self._model.validate_path(self.p_tta, trans_col_name, 'csv')
         if self._model.check_file_exists(p_trans_file):
-            print(f'Finished Translation to English {trans_col_name}')
+            print(f'Translation File {trans_col_name} Found.')
         else:
             # (1) no chunks
             # df_translated = df_curr[col_key].progress_apply(self.translate_apply, src='iw', tgt='en')
@@ -1143,8 +1157,10 @@ class TextAug:
         function generates augmentations PER MODEL (Stacking)
         """
         df_data = pd.read_csv(self._model.p_features_merged)
-        # self.vocab_w2v = self.vocabulary_load('100')
-        self.vocab_w2v = self.vocabulary_load('1000')
+        # i_dim = '100'
+        # i_dim = '300'
+        i_dim = '1000'
+        self.vocab_w2v = self.vocabulary_load(i_dim)
         self.i_invalid = 0
         i_row = 0
         tqdm.pandas()
@@ -1161,11 +1177,11 @@ class TextAug:
                 heb_col_srs = col_values.fillna(value='')
                 df_curr[col_key] = heb_col_srs
 
-                self.aug_translate(col_key, df_curr, trans_col_name)
+                self.aug_translate(col_key, trans_col_name)
                 self.aug_synonym(col_key, trans_col_name, syn_col_name, syn_heb_col_name)
                 self.aug_backtranslate(col_key, trans_col_name, backtrans_col_name)
-                self.aug_w2v(col_key, df_curr, w2v_col_name)
-                self.aug_umls(col_key, df_curr, umls_col_name)
+                self.aug_w2v(col_key, w2v_col_name)
+                self.aug_umls(col_key, umls_col_name)
 
                 i_row += 1
                 print(f'Done Augmentations on {col_key}.')
@@ -1330,6 +1346,34 @@ class TextAug:
             filename = 'x_' + s_aug
             self._model.set_df_to_csv(df_tfidf, filename, self.p_classifier, s_na='', b_append=False, b_header=True)
 
+    def aug_alephbert(self, col_key, alephbert_col_name):
+        """
+        function generates augmentation and writes a AlephBertGimmel augmentation file
+        :param s_text column of input
+        :param alpehbert_col_name file name
+        """
+        self.i_invalid = 0
+        p_aleph_file = self._model.validate_path(self.p_tta, alephbert_col_name, 'csv')
+        if self._model.check_file_exists(p_aleph_file):
+            print(f'Aleph Bert File {p_aleph_file} Found.')
+        else:
+            self.m_tokenizer = BertTokenizer.from_pretrained(self.p_alephbert)
+            self.m_w2v = BertForMaskedLM.from_pretrained(self.p_alephbert)
+            self.m_w2v.eval()  # if not finetuning -> disable dropout
+            self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=True)
+            with open(self.p_sectors) as read_chunk:
+                chunk_iter = pd.read_csv(read_chunk, chunksize=500)
+                tqdm.pandas()
+                for df_curr_chunk in tqdm(chunk_iter):
+                    if not df_curr_chunk.empty:
+                        s_curr_to_alephbert = df_curr_chunk[col_key].copy()
+                        s_curr_to_alephbert = s_curr_to_alephbert.fillna(value='')
+                        s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.word2vec_apply)
+                        df_curr_alpehbert = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
+                        df_curr_alpehbert = df_curr_alpehbert.merge(s_curr_alephbert, left_index=True, right_index=True)
+                        self._model.set_df_to_csv(df_curr_alpehbert, alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
+            print(f'Finished generating AlephBertGimmel Augmentation {alephbert_col_name} File, with {self.i_invalid} invalid terms.')
+
     def generate_aug(self):
         """
         function generates augmentations
@@ -1340,17 +1384,19 @@ class TextAug:
         s_text = df_data.columns.tolist()[1]  # validates format
         df_data[s_text] = df_data[s_text].fillna(value='')
 
-        # self.vocab_w2v = self.vocabulary_load('100')
-        # self.vocab_w2v = self.vocabulary_load('300')
-        # self.vocab_w2v = self.vocabulary_load('1000')
+        # i_dims = '100'
+        # i_dims = '300'
+        i_dims = '1000'
 
-        # self.aug_translate(s_text, 'translation')
-        # self.aug_synonym(s_text, 'translation', 'synonym', 'synonymheb')
-        # self.aug_backtranslate(s_text, 'translation', 'backtrans')
-        # self.aug_w2v(s_text, 'w2v')
+        self.vocab_w2v = self.vocabulary_load(i_dims)
+
+        self.aug_translate(s_text, 'translation')
+        self.aug_synonym(s_text, 'translation', 'synonym', 'synonymheb')
+        self.aug_backtranslate(s_text, 'translation', 'backtrans')
+        self.aug_w2v(s_text, 'w2v')
         # self.aug_w2v(s_text, 'fasttext')
-        # self.aug_w2v(s_text, 'bert')
+        self.aug_w2v(s_text, 'bert')
         # self.aug_umls(s_text, 'umls')
-        # self.aug_hebrew_synonym(s_text, 'synonymheb2')
-
+        self.aug_hebrew_synonym(s_text, 'synonymheb2')
+        self.aug_alephbert(s_text, 'alephbert')
         print(f'Done Augmentations.')

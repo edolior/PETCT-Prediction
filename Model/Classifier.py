@@ -281,6 +281,7 @@ class Classifier:
         self.d_level0 = dict()
         self.d_fold_scores = dict()
         self.d_scores = dict()
+        self.d_diff = dict()
 
         self.d_model_results_nested = {'TestAcc': list(), 'AUC': list(), 'Precision': list(), 'Recall': list(),
                                        'F1': list(), 'PRAUC': list()}
@@ -646,9 +647,7 @@ class Classifier:
         :param fig figure object
         :param s_title title name of figure
         """
-        p_save = self.p_plots + '\\' + s_title + '.png'
-        if self._model.b_vpn:
-            p_save = self.p_plots + '/' + s_title + '.png'
+        p_save = self._model.validate_path(self.p_plots, s_title, 'png')
 
         # if not self._model.check_file_exists(p_save):
         #     fig.savefig(p_save)
@@ -1493,8 +1492,6 @@ class Classifier:
         l_tta = list()
         tqdm.pandas()
         for aug_type in tqdm(self.l_tta_types):
-            # filename = 'x_'+aug_type
-            # p_curr_aug = self._model.validate_path(self.p_input_aug, filename, 'csv')
             if aug_type == 'synonymheb':
                 aug_type += '2'  # v2
             filename = aug_type
@@ -1534,17 +1531,62 @@ class Classifier:
             top_value = value['AUC'].max()
         self.d_scores[filename].append(top_value)
 
+    def apply_top_fold_diff(self, value, filename):
+        """
+        apply function: maximum value
+        :param value current dataframe
+        :param filename of experiment
+        """
+        value.groupby(['Fold']).apply(self.apply_fold_diff, filename)
+        i_top_fold_diff = max(self.d_diff, key=self.d_diff.get)
+        if filename != 'Baseline':  # TTA & TTA-on-Augmentation
+            df_top_score_diff = value.loc[(value['Fold'] == i_top_fold_diff) & (value['Test'] == 'TTAEnsemble'), ['Fold', 'Test', 'AUC']]
+            if filename == 'TTA':
+                df_top = value.loc[(value['Fold'] == i_top_fold_diff) & (value['Test'] == 'original'), ['Fold', 'Test', 'AUC']]
+                f_top = df_top.at[df_top.index[0], 'AUC']
+                try:
+                    self.d_scores['Baseline'].append(f_top)
+                except KeyError:
+                    self.d_scores['Baseline'] = list()
+                    self.d_scores['Baseline'].append(f_top)
+        else:
+            df_top_score_diff = value.loc[(value['Fold'] == i_top_fold_diff) & (value['Test'] == 'original'), ['Fold', 'Test', 'AUC']]
+        f_top_score_diff = df_top_score_diff.at[df_top_score_diff.index[0], 'AUC']
+        self.d_scores[filename].append(f_top_score_diff)
+
+    def apply_fold_diff(self, value, filename):
+        """
+        apply function: maximum value
+        :param value current fold in dataframe
+        :param filename of experiment
+        """
+        curr_fold = int(value.at[value.index[0], 'Fold'])
+        if filename == 'TTA':
+            i_ensemble = int(value.index[value['Test'] == 'TTAEnsemble'].tolist()[0])
+            f_ensemble = value[value['Test'] == 'TTAEnsemble'].at[i_ensemble, 'AUC']
+            i_base = int(value.index[value['Test'] == 'original'].tolist()[0])
+            f_base = value[value['Test'] == 'original'].at[i_base, 'AUC']
+            f_diff = round(f_ensemble - f_base, 3)
+        elif filename == 'Baseline':
+            i_base = int(value.index[value['Test'] == 'original'].tolist()[0])
+            f_base = value[value['Test'] == 'original'].at[i_base, 'AUC']
+            f_diff = round(f_base, 3)
+        elif filename == 'TTA-on-Aug':
+            i_fold = int(value.index[value['Test'] == 'TTAEnsemble'].tolist()[0])
+            f_diff = value[value['Test'] == 'TTAEnsemble'].at[i_fold, 'AUC']
+        self.d_diff[curr_fold] = f_diff
+
     def get_metrics_average(self):
         """
         function calculates final score and displays on plot
         """
 
         # s_filename= 'w2v'
-        s_filename = 'results'
-        # s_filename = 'final'
-        l_file = list()
+        # s_filename = 'results'
+        s_filename = 'final'
 
         if 'results' in s_filename:
+            l_file = list()
             l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'TTAEnsemble']
             # l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'xlnet', 'TTAEnsemble']
             # l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'xlnet', 'umls', 'TTAEnsemble']
@@ -1667,26 +1709,54 @@ class Classifier:
             s_title = '5 Fold CV Results'
             s_axis = 'AUC'
             df_curr = self.load_outputs()
-            df_curr_exp1 = df_curr[['AlgorithmA', 'AlgorithmB']].copy()
+
+            # df_curr_exp1 = df_curr[['AlgorithmA', 'AlgorithmB']].copy()
             # df_curr_exp2 = df_curr[['AlgorithmB', 'AlgorithmC']].copy()
-            self.plot_results(df_curr_exp1, self.l_targets_merged, s_title, s_axis)
+
+            # df_curr_exp1 = df_curr[['Baseline', 'TTA']].copy()
+            df_curr_exp2 = df_curr[['TTA', 'TTA-on-Aug']].copy()
+
+            # self.plot_results(df_curr_exp1, self.l_targets_merged, s_title, s_axis)
+            self.plot_results(df_curr_exp2, self.l_targets_merged, s_title, s_axis)
 
     def load_outputs(self):
         """
         function displays results of proposed algorithms
         """
-        l_filenames = ['baseline/results6', 'sclr_folds5/results8', 'train/results10']
-        l_filenames_exp1 = ['baseline/results6', 'sclr_folds5/results8']
-        l_filenames_exp2 = ['train/results10', 'sclr_folds5/results8']
-        df_output = pd.DataFrame(index=self.l_targets_merged, columns=['AlgorithmA', 'AlgorithmB', 'AlgorithmC'], )
-        for filename in l_filenames:
-            self.d_scores[filename] = list()
-            p_results = self.p_output + '/results/' + filename + '.csv'
-            df_curr_file = pd.read_csv(p_results)
-            df_curr_file.groupby(['Class']).apply(self.apply_top_fold, filename)
+        # l_cols = ['AlgorithmA', 'AlgorithmB', 'AlgorithmC']
+        l_cols = ['Baseline', 'TTA', 'TTA-on-Aug']
+
+        s_exp = '50000_1_2'
+
+        l_filenames = list()
+        # l_filenames = ['baseline/results6', 'sclr_folds5/results8', 'train/results10']
+        # l_filenames_exp1 = ['baseline/results6', 'sclr_folds5/results8']
+        # l_filenames_exp2 = ['train/results10', 'sclr_folds5/results8']
+
+        df_output = pd.DataFrame(index=self.l_targets_merged, columns=l_cols)
+
+        if len(l_filenames) > 1:
+            for filename in l_filenames:
+                self.d_scores[filename] = list()
+                p_results = self.p_output + '/results/' + filename + '.csv'
+                df_curr_file = pd.read_csv(p_results)
+                df_curr_file.groupby(['Class']).apply(self.apply_top_fold, filename)
+        else:
+            curr_path = self.p_output + '/results/' + s_exp
+            for root, dirs, l_filenames in os.walk(curr_path):
+                for filename in l_filenames:
+                    p_results = os.path.join(root, filename)
+                    df_curr_file = pd.read_csv(p_results)
+                    filename = filename.replace('.csv', '')
+                    self.d_scores[filename] = list()
+                    df_curr_file.groupby(['Class']).apply(self.apply_top_fold_diff, filename)
+                    self.d_diff = dict()
         i_file = 0
         for col in df_output.columns:
-            df_output[col] = self.d_scores[l_filenames[i_file]]
+            # df_output[col] = self.d_scores[l_filenames[i_file]]
+            for key, value in self.d_scores.items():
+                if key == col:
+                    df_output[col] = self.d_scores[key]
             i_file += 1
         return df_output
 
@@ -2029,8 +2099,8 @@ class Classifier:
         # x, y = self.randomize_data(x, y)
 
         # _max_features = 93000  # 1000 for each sectors
-        # _max_features = 50000
-        _max_features = 150000
+        _max_features = 50000
+        # _max_features = 150000
 
         _ngram = (1, 2)
         # _ngram = (1, 3)
@@ -2120,8 +2190,8 @@ class Classifier:
         # x, y = self.randomize_data(x, y)
 
         # _max_features = 93000  # 1000 for each sectors
-        # _max_features = 50000
-        _max_features = 150000
+        _max_features = 50000
+        # _max_features = 150000
 
         _ngram = (1, 2)
         # _ngram = (1, 3)
@@ -2506,10 +2576,10 @@ class Classifier:
         # x, y = self.randomize_data(x, y)  # prior shuffle
 
         # _max_features = 93000  # 1000 for each sectors
-        # _max_features = 50000
+        _max_features = 50000
         # _max_features = 150000
         # _max_features = 10000
-        _max_features = 1000
+        # _max_features = 1000
 
         _ngram = (1, 2)
         # _ngram = (1, 3)
@@ -2831,10 +2901,18 @@ class Classifier:
         :param df_friedman dataframe of algorithms AUC scores
         :return Post-Hoc CSV results file
         """
-        nd_hoc1 = np.array(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'])
-        nd_hoc2 = np.array(df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+        # nd_hoc1 = np.array(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'])
+        # nd_hoc2 = np.array(df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+
+        nd_hoc1 = np.array(df_friedman['Baseline'], df_friedman['TTA'])
         nd_hoc1 = np.expand_dims(nd_hoc1, axis=1)
+
+        nd_hoc2 = np.array(df_friedman['TTA'], df_friedman['TTA-on-Aug'])
+        nd_hoc2 = np.expand_dims(nd_hoc2, axis=1)
+
         nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc1.T)
+        # nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc2.T)
+
         print(nemenyi)
         self.plot_hoc(nemenyi)
         self._model.set_df_to_csv(nemenyi, 'post-hoc', self.p_output)
@@ -2850,7 +2928,8 @@ class Classifier:
         :param alpha confidence level
         :return hypothesis rejection
         """
-        stat, p_value = stats.friedmanchisquare(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+        # stat, p_value = stats.friedmanchisquare(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+        stat, p_value = stats.friedmanchisquare(df_friedman['Baseline'], df_friedman['TTA'], df_friedman['TTA-on-Aug'])
         reject = p_value <= alpha
         if not reject:
             print(f'We do not reject H0, because no significant difference in the mean accuracy results were found.')

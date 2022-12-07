@@ -528,7 +528,8 @@ class Model:
         #     i_features_sectors = l_exp_sectors[i]
         #     i_features_settings = l_exp_settings[i]
 
-        i_features_sectors, i_features_settings = None, None
+        # i_features_sectors, i_features_settings = None, None
+        i_features_sectors, i_features_settings = 50000, 20
         # i_features_sectors, i_features_settings = 10000, 50
 
         _aug = TextAug(self)
@@ -542,7 +543,7 @@ class Model:
             _aug.merge_to_one_cell(df_sectors, 'df_text')
 
         if self.b_tta:
-            # _aug.convert_bin_to_txt()
+            # _aug.convert_bin_to_txt()  # converts binary files to text files
             # _aug.word2vec_train()  # trains and saves a word2vec model
             _aug.generate_aug()  # generates augmentations
 
@@ -627,8 +628,8 @@ class Model:
             # self.run_parser()
             # self.run_preprocess()
             # self.run_report()
-            # self.run_text_aug()
-            self.run_classifier()
+            self.run_text_aug()
+            # self.run_classifier()
         i_run_end = time.time()
         run_time = i_run_end - i_run_start
         print('Finished in: %.2f hours (%.2f minutes).' % (run_time/60/60, run_time/60))
