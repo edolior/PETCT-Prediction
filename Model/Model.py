@@ -628,8 +628,8 @@ class Model:
             # self.run_parser()
             # self.run_preprocess()
             # self.run_report()
-            self.run_text_aug()
-            # self.run_classifier()
+            # self.run_text_aug()
+            self.run_classifier()
         i_run_end = time.time()
         run_time = i_run_end - i_run_start
         print('Finished in: %.2f hours (%.2f minutes).' % (run_time/60/60, run_time/60))
