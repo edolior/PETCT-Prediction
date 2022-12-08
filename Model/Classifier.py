@@ -3542,10 +3542,10 @@ class Classifier:
         """
         main function: runs all experiments
         """
-        self.model_cv()  # TTA Model (Novel)
+        # self.model_cv()  # TTA Model (Novel)
         # self.model_cv_baseline()  # Baseline Model
         # self.model_cv_train()  # TTA-Trained-on-Augmentations Model
-        # self.get_metrics_average()  # Displays Results
+        self.get_metrics_average()  # Displays Results
         # self.model_cv_contrastive()  # Contrastive Learning Model
         # self.model_cv_active()  # Active Learning Model
         # self.statistical_test()  # Friedman Statistical Test
