@@ -4,7 +4,7 @@ Clinical records gathered from hospitalized patients have been in the rise durin
 We present in this paper a classification system for identifying severity levels of cancer in 10 different sectors of the body. Test-Time Augmentation (TTA) is applied for enlarging essential text information retrieval and robustness to the model while maintaining inference time. This method automatically analyzes PET-CT pathology reports of patients. It indicates the patients current medical state with very high confidence. A large institutional report repository is used from a hospital to extract the semantics of the most contributing factors indicating the patients’ physical health condition impacted by their disease. The goal of this paper is to significantly increase the improvement of Hebrew PET-CT reports classification accuracy. Augmentation sets are generated and evaluated by the model during test-time to enhance, magnify and deepen the extraction of essential text from each report. This method is the novel of this study and results demonstrate higher performance by AUC evaluation criteria of the TTA model outperforming the Baseline model without TTA integration.
 
 MVC Architecture:
-![PETCT Architecture_V2](https://user-images.githubusercontent.com/44165771/212910153-6d7e5eb5-c8d3-4867-ab91-c94324461352.png)
+<img width="492" alt="PETCT Architecture_V2" src="https://user-images.githubusercontent.com/44165771/212911771-70781778-9880-4f09-81b7-0cd9df5c9a04.png">
 
 Model Pipepline:
 <img width="546" alt="petct_workflow_cap4" src="https://user-images.githubusercontent.com/44165771/212910375-9eb023ed-5a0c-4717-9e27-fdf75d547330.png">
