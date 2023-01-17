@@ -8,10 +8,10 @@ from gensim.test.utils import common_texts, get_tmpfile
 import gensim
 
 from google_trans_new import google_translator
-
+from string import digits
 import nlpaug.augmenter.word as naw
 import nlpaug.augmenter.sentence as nas
-
+from spellchecker import SpellChecker
 import nltk
 nltk.download(['wordnet', 'punkt', 'stopwords', 'averaged_perceptron_tagger', 'words'])
 from nltk.corpus import words, wordnet, comtrans
@@ -80,8 +80,10 @@ class TextAug:
         self.p_wiki_heb_txt = self.p_output + r'\wiki.he.text'
         self.p_glove = self.p_output + r'\wiki.he.text'
         self.p_xlnet = self._model.p_resource + r'\word2vec\xlnet_cased_L-24_H-1024_A-16'
-        self.p_alephbert = self._model.p_resource + r'\alephbertgimmel\ckpt_69200--Max128Seq'
-        # self.p_alephbert = self._model.p_resource + r'\alephbertgimmel\ckpt_73780--Max512Seq'
+        # self.p_alephbert = '/sise/home/edoli/ittest/alephbertgimmel/alephbertgimmel-base/ckpt_69200--Max128Seq'
+        self.p_alephbert = '/sise/home/edoli/ittest/alephbertgimmel/alephbertgimmel-base/ckpt_73780--Max512Seq'
+        # self.p_alephbert = '/sise/home/edoli/ittest/alephbertgimmel/alephbertgimmel-small/ckpt_13200--Max128Seq'
+        # self.p_alephbert = '/sise/home/edoli/ittest/alephbertgimmel/alephbertgimmel-small/ckpt_29400--Max128Seq'
 
         if self._model.b_vpn:
             self.p_input = self._model.set_vpn_dir(self.p_input)
@@ -100,11 +102,11 @@ class TextAug:
             self.p_xlnet = self._model.set_vpn_dir(self.p_xlnet)
             self.p_alephbert = self._model.set_vpn_dir(self.p_alephbert)
 
+        # self.get_hebrew_synonym = HebrewSimilarWords()
         self.translator = google_translator()
         self.get_synonym = naw.SynonymAug(aug_src='wordnet')
         # self.get_synonym = EDA()
         # self.py_dict = PyDictionary()
-        self.get_hebrew_synonym = HebrewSimilarWords()
 
         self.demographic_size = 4
         self.examination_size = 3
@@ -146,14 +148,14 @@ class TextAug:
         self.curr_w2v_name = ''
 
         l_puncs = ["\"", '\"', ',', '"', '|', '?', '-', '_', '*', '`', '/', '@', ';', "'", '[', ']', '(', ')',
-                   '{', '}', '<', '>', '~', '^', '?', '&', '!', '=', '+', '#', '$', '%', ':', '.']
+                   '{', '}', '<', '>', '~', '^', '?', '&', '!', '=', '+', '#', '$', '%', ':', '.', '”']
         self.d_punc = self.set_puncwords(l_puncs)
 
         self.df_all_tfidf = pd.DataFrame(columns=['CaseID'])
         self.l_onehots = list()
         self.l_tfdf_cols_settings = ['Service', 'VariableLocation', 'VariableRange', 'TestSetting']
         self.l_targets_merged = ['A+B', 'C+D', 'E+F', 'G', 'H+I', 'J', 'K', 'L', 'M', 'N']
-
+        self.d_errors = dict()
         self.d_invalid = dict()
 
         if self._model.check_file_exists(self.p_stopwords):
@@ -286,12 +288,45 @@ class TextAug:
             del l_curr_puncs
         return d_puncwords
 
-    def normalize_text(self, text):
+    def spelling_apply(self, value, m_spell):
+        s_spell = value
+        if s_spell != 'False' and s_spell != '':
+            l_sentence = s_spell.split()
+            s_spell = ''
+            for term in l_sentence:
+                correct = m_spell.correction(term)
+                candidate = m_spell.candidates(term)
+                s_spell += correct + ' '
+        s_spell = s_spell.lower()
+        return s_spell
+
+    def spell_checker(self, text, curr_df=None, col_text=None):
+        _distance = 1
+        m_spell = SpellChecker(distance=_distance)
+        srs_text = curr_df[col_text]
+        tqdm.pandas()
+        srs_text = srs_text.progress_apply(self.spelling_apply, args=(m_spell,))
+        df_spell = srs_text.to_frame(col_text)
+        return df_spell
+
+    def normalize_text(self, text, df=None, col_text=None):
         """
         function removes punctuations in a given text
-        :param text input
+        :param text string
+        :param df dataframe
+        :param col_text column of string
         """
-        return text.translate(str.maketrans(self.d_punc)).strip()
+        if isinstance(text, pd.DataFrame):
+            text = ''.join(filter(str.isalnum, df[col_text]))  # alpha-numerics
+            # text = ''.join([i for i in df[col_text] if i.isalpha()])  # alpha-numerics
+            text = self.spell_checker(None, df, col_text)  # checks spelling
+        else:
+            # text = re.sub(r'[^\w\s]', '', text)  # regex alpha-numnerics
+            text = ''.join(char for char in text if char.isalnum() or char == ' ')  # string alpha-numerics
+            text = text.translate(str.maketrans(self.d_punc)).strip()  # punctuation
+            # text = text.translate(str.maketrans('', '', digits))  # digits
+            # text = self.spell_checker(text, None, None)  # checks spelling
+        return text
 
     @staticmethod
     def toss(threshold=0.677):
@@ -337,7 +372,6 @@ class TextAug:
                     chosen_candidate = ''
                     term_error = ''
                     b_stop = False
-
                     try:
                         l_results = self.get_hebrew_synonym.get_similar(term)
                     except KeyError:
@@ -348,7 +382,6 @@ class TextAug:
                         except KeyError:
                             chosen_candidate = term
                             b_stop = True
-
                     if not b_stop:
                         try:
                             l_candidates = list()
@@ -377,7 +410,6 @@ class TextAug:
 
         syn_sequence = self.normalize_text(syn_sequence)
         syn_sequence = syn_sequence.lower()
-
         return syn_sequence
 
     def set_candidate(self, l_curr_window, i_top=10):
@@ -446,36 +478,87 @@ class TextAug:
         top_candidate = curr_tuple[0]
         return top_candidate
 
+    def alephbert_apply(self, value, i):
+        s_w2v = value
+        top_candidate, output = None, None
+        if s_w2v != 'False' and s_w2v != '':
+            s_w2v = ''
+            l_w2v_terms = value.split(' ')
+            i_length = len(l_w2v_terms)
+            if i_length > 512:  # file 29 with 214 terms finished
+                self.d_errors[i] = f'sequence length overload 512 of {i_length} terms.'
+                return value
+            i_modulo = 3
+            # i_modulo = 5
+            tqdm.pandas()
+            for i_term in tqdm(range(len(l_w2v_terms))):
+                term = l_w2v_terms[i_term]
+                if i_term > 400:
+                    self.d_errors[i] = 'sequence over limit 400'
+                    s_w2v += term + ' '
+                    continue
+                if i_term % i_modulo == 0 and i_term > 0:
+                    # i_top = 5
+                    i_top = 10
+                    l_src = l_w2v_terms[:i_term]  # sentence = '[MASK] היום דני הלך לבית'
+                    if len(l_src[len(l_src)-i_modulo]) == 0 and len(l_src) < i_modulo+1:
+                        continue
+                    s_src = ' '.join(l_src)  # the [MASK] is the 4th token (including [CLS])
+                    try:
+                        output = self.m_w2v(self.m_tokenizer.encode(s_src, return_tensors='pt'))  # ABG V2
+                        top_candidates = torch.topk(output.logits[0, 4, :], i_top)[1]  # should print ספר / הספר / כנסת
+                    except (IndexError, RuntimeError) as e:  # index 4 is out of bounds for dimension 1 with size 4
+                        print('Error:' + str(e))
+                        self.d_errors[i] = str(e)
+                        s_w2v += term + ' '
+                        continue
+                    l_candidates = self.m_tokenizer.convert_ids_to_tokens(top_candidates)
+                    # print('\n'.join(l_candidates))
+                    i_random = randrange(i_top)
+                    chosen_candidate = l_candidates[i_random]
+                    b_flag = False
+                    while chosen_candidate in self.d_punc and len(l_candidates) > 0 and not b_flag:
+                        l_candidates.pop(i_random)
+                        i_top -= 1
+                        if i_top == 0:
+                            b_flag = True
+                            continue
+                        i_random = randrange(i_top)
+                        chosen_candidate = l_candidates[i_random]
+                    if len(l_candidates) == 0 or b_flag:
+                        s_w2v += term + ' '
+                    else:
+                        s_w2v += chosen_candidate + ' '
+                else:
+                    s_w2v += term + ' '
+        s_w2v = self.normalize_text(s_w2v)
+        s_w2v = s_w2v.lower()
+        # print(s_w2v)
+        return s_w2v
+
     def word2vec_apply(self, value):
         """
         apply function: word2vec
         :param value record
         """
         s_w2v = value
-        i_top = 10
-        if value != 'False' and value != '':
+        if s_w2v != 'False' and s_w2v != '':
             s_w2v = ''
-            value = self.normalize_text(value)
             l_w2v_terms = value.split(' ')
             i_length = len(l_w2v_terms)
-            i_modulo = self.i_w2v
-
-            # v1.5-keyVectors
-            for i_term in range(len(l_w2v_terms)):
-                term = l_w2v_terms[i_term]
-                if i_term % i_modulo == 0:
-                    try:  # the [MASK] is the 4th token (including [CLS])
-                        if self.m_tokenizer is not None:  # AlephBertGimmel aug
-                            # sentence = 'דני הלך לבית [MASK] היום.'
-                            s_proceeding_window = ' '.join(l_w2v_terms[:i_term]) + '[MASK]'
-                            output = self.m_w2v(self.m_tokenizer.encode(s_proceeding_window, return_tensors='pt'))
-                            chosen_candidate = torch.topk(output.logits[0, 4, :], 5)[1]
-                            print('\n'.join(self.m_tokenizer.convert_ids_to_tokens(chosen_candidate)))
-                        else:  # fasttext, w2v, bert augs
-                            l_preds = self.m_w2v.most_similar(term, topn=i_top)
-                            i_random = randrange(i_top)
-                            curr_tuple = l_preds[i_random]
-                            chosen_candidate = curr_tuple[0]
+            i_modulo = 3
+            # i_modulo = 5
+            tqdm.pandas()
+            for i_term in tqdm(range(len(l_w2v_terms))):
+                term = l_w2v_terms[i_term]  # v1.5-keyVectors
+                if i_term % i_modulo == 0 and i_term > 0:
+                    # i_top = 5
+                    i_top = 10
+                    try:
+                        l_preds = self.m_w2v.most_similar(term, topn=i_top)
+                        i_random = randrange(i_top)
+                        curr_tuple = l_preds[i_random]
+                        chosen_candidate = curr_tuple[0]
                     except KeyError:
                         chosen_candidate = term
                     s_w2v += chosen_candidate + ' '
@@ -504,12 +587,17 @@ class TextAug:
             #         l_candidates.append(self.set_similar(curr_term))
             #     s_w2v = ' '.join(l_candidates)
 
-            # v2-nlpaug
-            # s_w2v = self.m_w2v.augment(value)
+        # v2-nlpaug-w2v
+        # s_w2v = self.m_w2v.augment(value)
+
+        # BERT
+        # l_candidates = self.m_w2v.augment(s_w2v)  # BERT
+        # if len(l_candidates) > 0:
+        #     s_w2v = l_candidates[0]
 
         s_w2v = self.normalize_text(s_w2v)
         s_w2v = s_w2v.lower()
-
+        # print(s_w2v)
         return s_w2v
 
     def translate_apply(self, value, src, tgt):
@@ -677,8 +765,7 @@ class TextAug:
         data_sample = data_sample.iloc[:sample]
         return data_sample
 
-    @staticmethod
-    def umls_apply(value):
+    def umls_apply(self, value):
         """
         apply function: returns umls output
         :param value record
@@ -688,6 +775,8 @@ class TextAug:
             resp1 = umls_api.API(api_key=value).get_cui(cui='C0007107')  # symbolic id
             resp2 = umls_api.API(api_key=value).get_tui(cui='C0007107')  # semantic id
             s_umls = resp1['result']['name']
+        s_umls = self.normalize_text(s_umls)
+        s_umls = s_umls.lower()
         return s_umls
 
     def create_cui_dict(self, voc_updated, tokenizer):
@@ -880,29 +969,29 @@ class TextAug:
             # self.curr_w2v_name = 'm_word2vec_300'
             # self.curr_w2v_name = 'm_word2vec_1000'
 
-            # (1) gensim: word2vec (input corpus)
+            # (1) gensim: word2vec (input corpus) -
             # p_m_w2v = self._model.validate_path(self.p_output, self.curr_w2v_name, 'model')
             # self.word2vec_load(p_m_w2v)
 
-            # (2) nlp-aug: fasttext (wiki)
+            # (2) nlp-aug: fasttext (wiki) -
             # self.m_w2v = naw.WordEmbsAug(model_type='fasttext', model_path=self.p_wiki_heb_vec)
 
-            # (3) nlp-aug: word2vec (wiki)
+            # (3) nlp-aug: word2vec (wiki) -
             # (3.1)
             # self.m_w2v = naw.WordEmbsAug(model_type='word2vec', model_path=self.p_wiki_heb_txt)
 
             # (3.2) gensim: word2vec (wiki)
-            # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_bin, binary=True, unicode_errors='ignore', encoding='utf8')
-            # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_vec, binary=False, unicode_errors='ignore', encoding='utf8')
+            # self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_bin, binary=True, unicode_errors='ignore', encoding='utf8') -
+            self.m_w2v = KeyedVectors.load_word2vec_format(self.p_wiki_heb_vec, binary=False, unicode_errors='ignore', encoding='utf8')
 
-            # (3.3) gensim: word2vec (wiki)
+            # (3.3) gensim: word2vec (wiki) -
             # self.m_w2v = Word2Vec.load(self.p_wiki_heb_txt)  # .bin / .txt
 
-            # (4) nlp-aug: glove (wiki)
+            # (4) nlp-aug: glove (wiki) -
             # self.m_w2v = naw.WordEmbsAug(model_type='glove', model_path=self.p_wiki_heb_txt)
 
-            # (5) nlp-aug: BERT
-            self.m_w2v = naw.ContextualWordEmbsAug(model_path='bert-base-multilingual-uncased', aug_p=0.1)  # tf 2.3
+            # (5) nlp-aug: BERT +
+            # self.m_w2v = naw.ContextualWordEmbsAug(model_path='bert-base-multilingual-uncased', aug_p=0.1)  # tf 2.3
 
             self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), w2v_col_name, self.p_tta, s_na='',
                                       b_append=True, b_header=True)
@@ -912,8 +1001,9 @@ class TextAug:
             # self._model.set_df_to_csv(df_w2v, w2v_col_name, self.p_output, s_na='', b_append=False, b_header=False)
 
             # (2) with chunks
-            p_sectors_trans = self.p_tta + '/translation' + '.csv'
-            with open(p_sectors_trans) as read_chunk:
+            # p_sectors_trans = self.p_tta + '/translation' + '.csv'
+            p_sectors = self.p_output + '/sectors' + '.csv'
+            with open(p_sectors) as read_chunk:
                 chunk_iter = pd.read_csv(read_chunk, chunksize=500)
                 tqdm.pandas()
                 for df_curr_chunk in tqdm(chunk_iter):
@@ -1349,30 +1439,41 @@ class TextAug:
     def aug_alephbert(self, col_key, alephbert_col_name):
         """
         function generates augmentation and writes a AlephBertGimmel augmentation file
-        :param s_text column of input
-        :param alpehbert_col_name file name
+        :param col_key column of input
+        :param alephbert_col_name file name
         """
         self.i_invalid = 0
         p_aleph_file = self._model.validate_path(self.p_tta, alephbert_col_name, 'csv')
-        if self._model.check_file_exists(p_aleph_file):
-            print(f'Aleph Bert File {p_aleph_file} Found.')
-        else:
-            self.m_tokenizer = BertTokenizer.from_pretrained(self.p_alephbert)
-            self.m_w2v = BertForMaskedLM.from_pretrained(self.p_alephbert)
-            self.m_w2v.eval()  # if not finetuning -> disable dropout
+        if not self._model.check_file_exists(p_aleph_file):
             self._model.set_df_to_csv(pd.DataFrame(columns=['CaseID', 'Text']), alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=True)
-            with open(self.p_sectors) as read_chunk:
-                chunk_iter = pd.read_csv(read_chunk, chunksize=500)
-                tqdm.pandas()
-                for df_curr_chunk in tqdm(chunk_iter):
-                    if not df_curr_chunk.empty:
-                        s_curr_to_alephbert = df_curr_chunk[col_key].copy()
-                        s_curr_to_alephbert = s_curr_to_alephbert.fillna(value='')
-                        s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.word2vec_apply)
-                        df_curr_alpehbert = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
-                        df_curr_alpehbert = df_curr_alpehbert.merge(s_curr_alephbert, left_index=True, right_index=True)
-                        self._model.set_df_to_csv(df_curr_alpehbert, alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
-            print(f'Finished generating AlephBertGimmel Augmentation {alephbert_col_name} File, with {self.i_invalid} invalid terms.')
+        print(f'Loaded AlephBertGimmel {p_aleph_file}.')
+        self.m_tokenizer = BertTokenizer.from_pretrained(self.p_alephbert)
+        self.m_w2v = BertForMaskedLM.from_pretrained(self.p_alephbert)
+        # buffered_token_type_ids_expanded = buffered_token_type_ids.expand(batch_size, seq_length)
+        # RuntimeError: The expanded size of the tensor(513) must match the existing size(512) at
+        # non - singleton dimension 1. Target sizes: [1, 513].Tensor sizes: [1, 512]
+        self.m_w2v.eval()  # if not finetuning -> disable dropout
+
+        i = 0
+        # _chunk_size = 500
+        # _chunk_size = 25
+        _chunk_size = 1
+
+        i_next_chunk = 0
+        # i_next_chunk = 1049  # == row 1051 in csv id 31245205 - complete
+        with open(self.p_sectors) as read_chunk:
+            chunk_iter = pd.read_csv(read_chunk, chunksize=_chunk_size)
+            tqdm.pandas()
+            for df_curr_chunk in tqdm(chunk_iter):
+                if not df_curr_chunk.empty and i >= i_next_chunk:
+                    s_curr_to_alephbert = df_curr_chunk[col_key].copy()
+                    s_curr_to_alephbert = s_curr_to_alephbert.fillna(value='')
+                    s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.alephbert_apply, i=i)
+                    df_curr_alpehbert = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
+                    df_curr_alpehbert = df_curr_alpehbert.merge(s_curr_alephbert, left_index=True, right_index=True)
+                    self._model.set_df_to_csv(df_curr_alpehbert, alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
+                i += 1
+        print(f'Finished generating AlephBertGimmel Augmentation {alephbert_col_name} File, with {self.i_invalid} invalid terms.')
 
     def generate_aug(self):
         """
@@ -1380,23 +1481,19 @@ class TextAug:
         """
         p_original = self._model.validate_path(self.p_output, 'sectors', 'csv')
         df_data = pd.read_csv(p_original)
-
         s_text = df_data.columns.tolist()[1]  # validates format
         df_data[s_text] = df_data[s_text].fillna(value='')
-
         # i_dims = '100'
         # i_dims = '300'
         i_dims = '1000'
-
-        self.vocab_w2v = self.vocabulary_load(i_dims)
-
-        self.aug_translate(s_text, 'translation')
-        self.aug_synonym(s_text, 'translation', 'synonym', 'synonymheb')
-        self.aug_backtranslate(s_text, 'translation', 'backtrans')
-        self.aug_w2v(s_text, 'w2v')
+        # self.vocab_w2v = self.vocabulary_load(i_dims)
+        # self.aug_translate(s_text, 'translation')
+        # self.aug_synonym(s_text, 'translation', 'synonym', 'synonymheb')
+        # self.aug_backtranslate(s_text, 'translation', 'backtrans')
+        # self.aug_w2v(s_text, 'w2v')
         # self.aug_w2v(s_text, 'fasttext')
-        self.aug_w2v(s_text, 'bert')
+        # self.aug_w2v(s_text, 'bert')
         # self.aug_umls(s_text, 'umls')
-        self.aug_hebrew_synonym(s_text, 'synonymheb2')
-        self.aug_alephbert(s_text, 'alephbert')
+        # self.aug_hebrew_synonym(s_text, 'synonymheb2')
+        # self.aug_alephbert(s_text, 'alephbert')
         print(f'Done Augmentations.')

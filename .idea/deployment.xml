@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="edoli@132.72.65.238:22" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="edoli@132.72.64.144:22" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="edoli@132.72.40.122:22">
         <serverdata>
@@ -205,10 +205,17 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="edoli@132.72.46.120:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_147" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="edoli@132.72.46.124:22">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_93" local="$PROJECT_DIR$" />
+            <mapping deploy="/tmp/pycharm_project_370" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -233,10 +240,52 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="edoli@132.72.46.175:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_364" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.177:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_661" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="edoli@132.72.46.178:22">
         <serverdata>
           <mappings>
             <mapping deploy="/tmp/pycharm_project_302" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.179:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_910" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.180:22">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.190:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_489" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.195:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_359" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -247,10 +296,45 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="edoli@132.72.46.198:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_789" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="edoli@132.72.46.204:22">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_886" local="$PROJECT_DIR$" />
+            <mapping deploy="/tmp/pycharm_project_482" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.206:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_419" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.208:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_410" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.211:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_855" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.213:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_927" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -272,6 +356,13 @@
         <serverdata>
           <mappings>
             <mapping deploy="/tmp/pycharm_project_414" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.46.244:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_127" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -314,6 +405,13 @@
         <serverdata>
           <mappings>
             <mapping deploy="/tmp/pycharm_project_124" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.64.144:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_936" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -362,7 +460,14 @@
       <paths name="edoli@132.72.65.230:22">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/tmp/pycharm_project_533" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="edoli@132.72.65.231:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_21" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -376,7 +481,7 @@
       <paths name="edoli@132.72.65.236:22">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_351" local="$PROJECT_DIR$" />
+            <mapping deploy="/tmp/pycharm_project_51" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

@@ -2,6 +2,8 @@ from Model.Parser import Parser
 from Model.Report import Report
 from Model.TextAug import TextAug
 from Model.Classifier import Classifier
+from Model.Fairness import Fairness
+from Model.Explainer import Explainer
 
 import pandas as pd
 import numpy as np
@@ -213,9 +215,7 @@ class Model:
         :param b_header to write header or not
         :return updated dataframe saved in resources directory path
         """
-        p_write = path + '\\' + filename + '.csv'
-        if self.b_vpn:
-            p_write = path + '/' + filename + '.csv'
+        p_write = self.validate_path(path, filename, 'csv')
         if b_append:
             df.to_csv(path_or_buf=p_write, mode='a', index=False, na_rep=s_na, header=b_header, encoding='utf-8-sig')
         else:
@@ -599,6 +599,14 @@ class Model:
             print(null_value)
         self.set_df_to_csv(df_merged, 'merged_stopwords', self.p_resource, s_na='NA', b_append=True, b_header=True)
 
+    def run_fairness(self):
+        _fairness = Fairness(self)
+        _fairness.run()
+
+    def run_explainer(self):
+        _explainer = Explainer(self)
+        _explainer.run()
+
     def run_report(self):
         """
         function runs Report class pipeline
@@ -630,6 +638,8 @@ class Model:
             # self.run_report()
             # self.run_text_aug()
             self.run_classifier()
+            # self.run_fairness()
+            # self.run_explainer()
         i_run_end = time.time()
         run_time = i_run_end - i_run_start
         print('Finished in: %.2f hours (%.2f minutes).' % (run_time/60/60, run_time/60))
