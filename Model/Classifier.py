@@ -51,9 +51,12 @@ from catboost import CatBoostClassifier
 import lightgbm as lgb
 from sklearn.preprocessing import MinMaxScaler
 from fancyimpute import *
-# from autoimpute.imputations import MiceImputer  # enable with vpn
-# from autoimpute.analysis import MiLinearRegression  # enable with vpn
-from bayes_opt import BayesianOptimization
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+from sklearn.impute import SimpleImputer
+# from bayes_opt import BayesianOptimization  # enable on vpn
+# from autoimpute.imputations import MiceImputer  # enable on vpn
+# from autoimpute.analysis import MiLinearRegression  # enable on vpn
 
 import imblearn
 from imblearn.pipeline import Pipeline
@@ -1057,6 +1060,7 @@ class Classifier:
         fig = plt.figure()
         if s_axis == 'AUC':
             sns.set_theme(style="darkgrid")
+            df_results.index = self.l_targets_merged
             sns.scatterplot(data=df_results, sizes=(30, 200), legend='brief').set(title=s_axis + ' ' + s_title)  # without aug results
 
             # sns.scatterplot(data=df_results, x='Class', y='AUC', sizes=(30, 200), legend='brief').set(title=s_axis + ' ' + s_title)
@@ -1554,14 +1558,15 @@ class Classifier:
                 l_tta.append(df_curr_aug)
         return l_tta
 
-    def apply_fold(self, value):
+    def apply_fold(self, value, s_metric):
         """
         apply function: returns all values per fold
         :param value current dataframe
+        :param s_metric evaluation metric
         """
         for index, row in value.iterrows():
             name = row['Test']
-            score = row['AUC']
+            score = row[s_metric]
             self.d_fold_scores[name].append(float(score))
 
     def apply_top_fold(self, value, filename):
@@ -1585,9 +1590,9 @@ class Classifier:
         """
         value.groupby(['Fold']).apply(self.apply_fold_diff, filename)
         i_top_fold_diff = max(self.d_diff, key=self.d_diff.get)
-        if filename != 'Baseline':  # TTA & TTA-on-Augmentation
+        if filename != 'Baseline':  # TTTA & TTTA-TA
             df_top_score_diff = value.loc[(value['Fold'] == i_top_fold_diff) & (value['Test'] == 'TTAEnsemble'), ['Fold', 'Test', 'AUC']]
-            if filename == 'TTA':
+            if filename == 'TTTA':
                 df_top = value.loc[(value['Fold'] == i_top_fold_diff) & (value['Test'] == 'original'), ['Fold', 'Test', 'AUC']]
                 f_top = df_top.at[df_top.index[0], 'AUC']
                 try:
@@ -1623,7 +1628,8 @@ class Classifier:
         :param filename of experiment
         """
         curr_fold = int(value.at[value.index[0], 'Fold'])
-        if filename == 'TTA':
+        f_diff = None
+        if filename == 'TTTA':
             i_ensemble = int(value.index[value['Test'] == 'TTAEnsemble'].tolist()[0])
             f_ensemble = value[value['Test'] == 'TTAEnsemble'].at[i_ensemble, 'AUC']
             i_base = int(value.index[value['Test'] == 'original'].tolist()[0])
@@ -1633,7 +1639,7 @@ class Classifier:
             i_base = int(value.index[value['Test'] == 'original'].tolist()[0])
             f_base = value[value['Test'] == 'original'].at[i_base, 'AUC']
             f_diff = round(f_base, 3)
-        elif filename == 'TTA-on-Aug':
+        elif filename == 'TTTA-TA':
             i_fold = int(value.index[value['Test'] == 'TTAEnsemble'].tolist()[0])
             f_diff = value[value['Test'] == 'TTAEnsemble'].at[i_fold, 'AUC']
         self.d_diff[curr_fold] = f_diff
@@ -1643,11 +1649,15 @@ class Classifier:
         function calculates final score and displays on plot
         """
         # s_filename= 'w2v'
-        s_filename = 'results'
-        # s_filename = 'final'
+        # s_filename = 'results'
+        s_filename = 'final'
+
+        s_metric = 'AUC'
+        # s_metric = 'PRAUC'
 
         if 'results' in s_filename:
             l_file = list()
+            d_std = dict()
             s_axis = f'AUC Average {self.i_cv} Folds CV'
 
             # version, experiment = '1', 'bert_no_general'
@@ -1669,7 +1679,10 @@ class Classifier:
             # version, experiment = '17', 'tfidf_ratio_1_2'
             # version, experiment = '19', '50000_1_2'
             # version, experiment = '20', '50000_opt'
-            version, experiment = '21', 'abg'
+            # version, experiment = '21', 'abg'
+            version, experiment, sub_experiment = '22', 'abg', 'abg_train'
+            # version, experiment, sub_experiment = '23', 'abg', 'abg-v2'
+            # version, experiment, sub_experiment = '24', 'abg', 'abg_train-v2'
 
             if 'tfidf' in experiment:
                 p_dir = self.p_output+'/'+experiment
@@ -1678,11 +1691,11 @@ class Classifier:
                         curr_file_path = os.path.join(root, file)
                         l_file.append(curr_file_path)
             else:
-                l_file = [self.p_output + '/' + s_filename + '/' + experiment + '/' + experiment + '.csv']
+                l_file = [self.p_output + '/' + s_filename + '/' + experiment + '/' + sub_experiment + '.csv']
 
             for p_file in l_file:
                 df_curr_file = pd.read_csv(p_file)
-
+                d_avg = dict()
                 for i in range(len(self.l_targets_merged)):
                     curr_class = self.l_targets_merged[i]
 
@@ -1693,11 +1706,29 @@ class Classifier:
                             self.d_fold_scores[aug_type] = list()
 
                     df_class = df_curr_file.loc[df_curr_file['Class'] == curr_class]
+                    d_std[curr_class] = dict()
+                    for i in range(len(self.l_test_types)+1):
+                        if i == len(self.l_test_types):
+                            model_type = 'TTAEnsemble'
+                        else:
+                            model_type = self.l_test_types[i]
+                        d_std[curr_class][model_type] = dict()
+                        df_class_subset = df_class.loc[(df_class['Test'] == model_type), ['Fold', 'Test', 'AUC', 'PRAUC']]
+                        srs_score = df_class_subset[s_metric]
+                        np_score = srs_score.to_numpy(dtype=float)
+                        curr_std = round(np.std(np_score), 2)
+                        print(f'Class: {curr_class}, Type: {model_type}, Metric: {s_metric} Std: {curr_std}')
+                        d_std[curr_class][model_type] = str(curr_std)
+                    print('---------------------------------------------------------')
 
-                    df_class.groupby(['Fold']).apply(self.apply_fold)  # loops folds
+                    df_class.groupby(['Fold']).apply(self.apply_fold, s_metric)  # loops folds
 
                     l_results = list()
+                    d_avg[curr_class] = dict()
                     for key, value in self.d_fold_scores.items():
+                        d_avg[curr_class][key] = dict()
+                        f_avg = round(mean(value), 3)
+                        d_avg[curr_class][key] = f_avg
                         l_curr_results = value
                         l_results.append(l_curr_results)
 
@@ -1707,6 +1738,10 @@ class Classifier:
 
                     self.plot(df_class, self.l_order, 'Test', curr_class, curr_class+' '+s_axis)
 
+                df_std = pd.DataFrame.from_dict(d_std, orient='index')
+                df_std = df_std.reset_index(level=0)
+                self._model.set_df_to_csv(df_std, 'classes_std_'+s_metric, self.p_output + '/std', s_na='', b_append=False,
+                                          b_header=False)
                 self.d_fold_scores = dict()
 
         elif s_filename == 'w2v':
@@ -1742,11 +1777,6 @@ class Classifier:
                     else:
                         df_avg = df_avg_folds.loc[df_avg_folds['Test'] == 'w2v']
                     mean_score = df_avg['AUC'].mean()
-                    if pd.isna(mean_score):
-                        if curr_class == 'M':
-                            mean_score = 0.677
-                        elif curr_class == 'N':
-                            mean_score = 0.755
                     d_results[curr_class].append(mean_score)
 
             for l in range(len(self.l_targets_merged)):
@@ -1770,14 +1800,13 @@ class Classifier:
             s_title = '5 Fold CV Results'
             s_axis = 'AUC'
             df_curr = self.load_outputs()
-
-            df_curr_exp = df_curr[['Baseline', 'TTTA', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT']].copy()
-            df_curr_exp = df_curr[['TTTA', 'TTTA-on-Aug']].copy()
-
-            # df_curr_exp = df_curr[['TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTTA',
-            #                        'TTTA-on-Aug', 'TTA-on-Aug_BackTranslation', 'TTA-on-Aug_Synonym',
-            #                        'TTA-on-Aug_Word2Vec', 'TTA-on-Aug_BERT']].copy()
-
+            # l_curr = ['Baseline', 'TTTA', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTA_ABG']
+            l_curr = ['Baseline', 'TTTA-TA', 'TTA-TA_BackTranslation', 'TTA-TA_Synonym', 'TTA-TA_Word2Vec', 'TTA-TA_BERT', 'TTA-TA_ABG']
+            # l_curr = ['Baseline', 'TTTA']
+            # l_curr = ['Baseline', 'TTTA-TA']
+            # l_curr = ['TTTA', 'TTTA-TA']
+            # l_curr = ['Baseline', 'TTTA', 'TTTA-TA', 'TA']
+            df_curr_exp = df_curr[l_curr].copy()
             self.plot_results(df_curr_exp, self.l_targets_merged, s_title, s_axis)
 
     def apply_get_top(self, value, filename):
@@ -1802,21 +1831,35 @@ class Classifier:
                     self.d_scores['Baseline'] = list()
                     self.d_scores['Baseline'].append(f_top_curr)
 
-    def load_outputs(self):
+    def load_outputs(self, b_stat=False):
         """
         function displays results of proposed algorithms
         """
         # l_cols = ['AlgorithmA', 'AlgorithmB', 'AlgorithmC']
+        # l_cols = ['Baseline', 'TTTA-TA', 'TTA-TA_BackTranslation', 'TTA-TA_Synonym', 'TTA-TA_Word2Vec', 'TTA-TA_BERT', 'TTA-TA_ABG']
+        # l_cols = ['Baseline', 'TTTA', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTA_ABG']
         # l_cols = ['Baseline', 'TTTA']
-        # l_cols = ['TTTA', 'TTTA-on-Aug']
-        l_cols = ['Baseline', 'TTTA', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTTA-on-Aug']
+        # l_cols = ['TTTA', 'TTTA-TA]
+        # l_cols = ['Baseline', 'TTTA-TA']
+        # l_cols = ['Baseline', 'TTTA', 'TTTA-TA']
+        l_cols = ['Baseline', 'TTTA', 'TTTA-TA', 'TA']
 
         # s_experiment = '50000_1_2'
-        s_experiment = '50000_opt'
+        # s_experiment = '50000_opt'
+        s_experiment = 'abg'
 
-        s_file = 'TTA'
-        s_file1 = 'TTA_best_diff'
-        s_file2 = 'TTA-on-Aug'
+        filename = 'TTTA'
+        # s_file = 'TTTA'
+        # s_file = 'results_tta-train_top-diff'
+        # s_file = 'results_tta-train_abg-w10'
+        # s_file = 'results_final_baseline_tta_with_augs'
+        # s_file = 'results_final_tta_vs_train'
+        # s_file = 'results_final_baseline_tta_aug_ttatrain'
+        s_file = 'results_final_baseline_ttatrain_with_augs'
+        # s_file = 'results_final_baseline_ttatrain'
+
+        s_file1 = 'TTTA_best_diff'
+        s_file2 = 'TTTA-TA'
 
         l_filenames = list()
         # l_filenames = ['baseline/results6', 'sclr_folds5/results8', 'train/results10']
@@ -1828,47 +1871,62 @@ class Classifier:
 
         df_output = pd.DataFrame(index=self.l_targets_merged, columns=l_cols)
 
-        if not b_diff:
-            if len(l_filenames) > 1:
-                for filename in l_filenames:
-                    self.d_scores[filename] = list()
-                    p_results = self.p_output + '/results/' + filename + '.csv'
-                    df_curr_file = pd.read_csv(p_results)
-                    df_curr_file.groupby(['Class']).apply(self.apply_top_fold, filename)
+        if b_stat:
+            p_curr = self.p_output + '/results/' + s_experiment + '/' + s_file + '.csv'
+            df_results = pd.read_csv(p_curr)
+            if len(df_results.columns) > 5:
+                self.d_scores[filename] = list()
+                df_results.groupby(['Class']).apply(self.apply_top_fold_diff, filename)
+                for col in df_output.columns:
+                    if col == 'Baseline':
+                        df_output[col] = df_results['']
+                    elif col == 'TTTA-TA':
+                        df_output[col] = df_results
             else:
-                curr_path = self.p_output + '/results/' + s_experiment
-                for root, dirs, l_filenames in os.walk(curr_path):
-                    for filename in l_filenames:
-                        p_results = os.path.join(root, filename)
-                        df_curr_file = pd.read_csv(p_results)
-                        filename = filename.replace('.csv', '')
-                        self.d_scores[filename] = list()
-                        df_curr_file.groupby(['Class']).apply(self.apply_top_fold_diff, filename)
-                        self.d_diff = dict()
+                df_output = df_results
         else:
-            p_curr = self.p_output + '/results/' + s_experiment + '/' + s_file1 + '.csv'
-            df_results = pd.read_csv(p_curr)
-            self.d_scores['TTTA'] = dict()
-            df_results.groupby(['Class']).apply(self.apply_get_top, 'TTTA')
+            if 'final' not in s_file:
+                if not b_diff:
+                    if len(l_filenames) > 1:
+                        for filename in l_filenames:
+                            self.d_scores[filename] = list()
+                            p_results = self.p_output + '/results/' + filename + '.csv'
+                            df_curr_file = pd.read_csv(p_results)
+                            df_curr_file.groupby(['Class']).apply(self.apply_top_fold, filename)
+                    else:
+                        curr_path = self.p_output + '/results/' + s_experiment
+                        for root, dirs, l_filenames in os.walk(curr_path):
+                            for filename in l_filenames:
+                                p_results = os.path.join(root, filename)
+                                df_curr_file = pd.read_csv(p_results)
+                                filename = filename.replace('.csv', '')
+                                self.d_scores[filename] = list()
+                                df_curr_file.groupby(['Class']).apply(self.apply_top_fold_diff, filename)
+                                self.d_diff = dict()
+                elif b_diff:
+                    p_curr = self.p_output + '/results/' + s_experiment + '/' + s_file1 + '.csv'
+                    df_results = pd.read_csv(p_curr)
+                    self.d_scores['TTTA'] = dict()
+                    df_results.groupby(['Class']).apply(self.apply_get_top, 'TTTA')
 
-            p_curr = self.p_output + '/results/' + s_experiment + '/' + s_file2 + '.csv'
-            df_results = pd.read_csv(p_curr)
-            self.d_scores['TTTA-on-Aug'] = dict()
-            df_results.groupby(['Class']).apply(self.apply_get_top, 'TTTA-on-Aug')
+                    p_curr = self.p_output + '/results/' + s_experiment + '/' + s_file2 + '.csv'
+                    df_results = pd.read_csv(p_curr)
+                    self.d_scores['TTTA-TA'] = dict()
+                    df_results.groupby(['Class']).apply(self.apply_get_top, 'TTTA-TA')
 
-        # self.l_test_types = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert']
-        # self.l_type_models = ['Baseline', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTTA']
-        # self.l_tta_types = ['backtrans', 'synonymheb', 'w2v', 'bert']
+                i_file = 0
+                for col in df_output.columns:
+                    if col == 'Baseline':
+                        df_output[col] = self.d_scores[col]
+                    elif col == 'TTTA-TA':
+                        df_output[col] = self.d_scores['TTTA-TA']['TTTA']
+                    else:
+                        df_output[col] = self.d_scores['TTTA'][col]
+                    i_file += 1
 
-        i_file = 0
-        for col in df_output.columns:
-            if col == 'Baseline':
-                df_output[col] = self.d_scores[col]
-            elif col == 'TTTA-on-Aug':
-                df_output[col] = self.d_scores['TTTA-on-Aug']['TTTA']
-            else:
-                df_output[col] = self.d_scores['TTTA'][col]
-            i_file += 1
+            else:  # final output saved
+                p_output = self.p_output + '/results/' + s_file + '.csv'
+                df_output = pd.read_csv(p_output)
         return df_output
 
     def up_sample(self, x_train, y_train, y_curr, i_train, i_range, s_target):
@@ -2228,6 +2286,8 @@ class Classifier:
 
             s_target = self.l_targets_merged[i_target]
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
+            top_fold = -1
+            top_score = float('-inf')
 
             s_params = 'params_' + s_target
             p_params = self._model.validate_path(self.p_output, s_params, 'pkl')
@@ -2250,7 +2310,9 @@ class Classifier:
                 y_train, y_test = y_curr[i_train], y_curr[i_test]
 
                 x_general_train, x_general_test = self.general.iloc[i_train], self.general.iloc[i_test]
-                x_general_train, x_general_test = self.impute_mean(x_general_train, x_general_test)
+                # x_general_train, x_general_test = self.impute_mean(x_general_train, x_general_test)
+                x_general_train, x_general_test = self.impute_knn(x_general_train, x_general_test)
+                # x_general_train, x_general_test = self.impute_mice(x_general_train, x_general_test, y_train)
 
                 x_train = vectorizer.fit_transform(x_train)
                 x_train = pd.DataFrame(x_train.toarray(), columns=vectorizer.get_feature_names_out())
@@ -2273,34 +2335,51 @@ class Classifier:
 
                 print(f'Label: {s_target}, Done fold: {i_fold}')
 
+            for curr_model in self.l_order:  # only original
+                self.d_fold_scores[curr_model] = list()
+            df_curr_class = self.df_metrics.loc[self.df_metrics['Class'] == s_target]
+            df_curr_class.groupby(['Fold']).apply(self.apply_fold, 'AUC')
+            l_results = list()
+            for key, value in self.d_fold_scores.items():
+                l_curr_results = value
+                l_results.append(l_curr_results)
+            df_class_results = pd.DataFrame.from_dict(self.d_fold_scores, orient='columns')
+            for i in range(self.i_cv):
+                df_class_results.rename(index={i: 'Fold' + str(i)}, inplace=True)
+            self.plot(df_class_results, self.l_order, 'Sets', 'AUC'+'_'+s_target, s_model+'_'+str(self.i_cv)+'_'+'Folds_CV')
+            self.d_fold_scores = dict()
+
             self._model.set_df_to_csv(self.df_metrics, self.df_metrics_name, self.p_output,
-                                      s_na='', b_append=True, b_header=True)
+                                      s_na='', b_append=True, b_header=True)  # writes results to output file
 
             s_top_model = self.d_top[1]
             o_top_model = self.d_top[2]
             i_top_fold = self.d_top[3]
-            self.save_model(s_top_model, o_top_model, i_top_fold)
+            print(f'Top difference score model: {s_top_model}, Top fold: {str(i_top_fold)}')
+            # self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top[4]
             x_top_test = self.d_top[5]
             y_top_train = self.d_top[6]
             y_top_test = self.d_top[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
+            # self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
+            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
+            self.base_score = -1
 
             s_top_model = self.d_top_auc[1]
             o_top_model = self.d_top_auc[2]
             i_top_fold = self.d_top_auc[3]
-            self.save_model(s_top_model, o_top_model, i_top_fold)
+            print(f'Top score model: {s_top_model}, Top fold: {str(i_top_fold)}')
+            # self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top_auc[4]
             x_top_test = self.d_top_auc[5]
             y_top_train = self.d_top_auc[6]
             y_top_test = self.d_top_auc[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
+            # self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
             self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None)
 
-            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
-            self.base_score = -1
+            self.df_metrics = pd.DataFrame(columns=self.l_cols_metrics)
 
     def model_cv_train(self):
         # function runs Pre-trained TTA Ensemble Model
@@ -2324,9 +2403,13 @@ class Classifier:
 
         x, self.general, y = self.init_models(b_sample)
 
+        epochs = 200
+        batch_size = 4
+        i_val_split = 0.15
+
         # x, y = self.randomize_data(x, y)
 
-        # _max_features = 93000  # 1000 for each sectors
+        # _max_features = 93000  # 1000 for each sector
         _max_features = 50000
         # _max_features = 150000
 
@@ -2339,10 +2422,10 @@ class Classifier:
 
         for i_target in tqdm(range(len(self.l_targets_merged))):
             # d = {'A+B': 0, 'C+D': 1, 'E+F': 2, 'G': 3, 'H+I': 4, 'J': 5, 'K': 6, 'L': 7, 'M': 8, 'N': 9}
-
             y_curr = y.iloc[:, i_target].copy()  # by value and not by pointer
             x_curr = x['Text'].copy()
             self.l_x_tta = copy.deepcopy(self.l_tta)
+            self.x_general = copy.deepcopy(self.general)
 
             s_target = self.l_targets_merged[i_target]
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
@@ -2350,14 +2433,15 @@ class Classifier:
             top_score = float('-inf')  # chosen score: precision-recall auc
             i_range = None
 
-            if b_resample:
+            if b_resample and i_target < 2:
                 x_curr, y_curr, i_range = self.down_sample(x_curr, y_curr, self.l_targets_merged[i_target])
 
-            s_params = 'params_' + s_target
+            s_params = 'params_' + s_target  # bayesian optimization
             p_params = self._model.validate_path(self.p_params, s_params, 'pkl')
             if not self._model.check_file_exists(p_params):
                 print('Optimizing target: ' + s_target)
                 self.optimize_params(x_curr, y_curr, p_params, vectorizer)
+                continue
             else:
                 print('Loading ' + s_params)
                 d_params = self.load_params(s_params)
@@ -2369,6 +2453,8 @@ class Classifier:
                                     objective='binary:logistic', random_state=9, verbosity=0, use_label_encoder=False)
             s_model = 'XGBoost'+s_target
 
+            # self.load_xlnet()
+
             for i_fold, (i_train, i_test) in enumerate(k_outer.split(x_curr, y_curr)):
 
                 x_train, x_test = x_curr[i_train], x_curr[i_test]
@@ -2379,12 +2465,13 @@ class Classifier:
                 x_general_train, x_general_test = self.impute_knn(x_general_train, x_general_test)
                 # x_general_train, x_general_test = self.impute_mice(x_general_train, x_general_test, y_train)
 
-                if self.b_tta:  # train
+                if self.b_tta:
                     x_train.reset_index(inplace=True, drop=True)
                     curr_y_train = y_train.copy()
                     y_train.reset_index(inplace=True, drop=True)
                     y_test.reset_index(inplace=True, drop=True)
-                    for j in range(len(self.l_x_tta)):
+
+                    for j in range(len(self.l_x_tta)):  # v1 - fit transform train-on-augs
                         x_aug_curr = self.l_x_tta[j]
                         x_aug_curr = x_aug_curr['Text']
                         x_aug_curr = x_aug_curr[i_train]
@@ -2394,6 +2481,22 @@ class Classifier:
 
                 x_train = vectorizer.fit_transform(x_train)
                 x_train = pd.DataFrame(x_train.toarray(), columns=vectorizer.get_feature_names_out())
+
+                # x_train_augs = None  # v2 - transform train-on-augs
+                # for j in range(len(self.l_x_tta)):
+                #     x_aug_curr = self.l_x_tta[j]
+                #     x_aug_curr = x_aug_curr['Text']
+                #     x_aug_curr = x_aug_curr[i_train]
+                #     x_aug_curr = vectorizer.transform(x_aug_curr)
+                #     x_aug_curr = pd.DataFrame(x_aug_curr.toarray(), columns=vectorizer.get_feature_names_out())
+                #     if x_train_augs is None:
+                #         x_train_augs = x_aug_curr.copy()
+                #     else:
+                #         x_train_augs = pd.concat([x_train_augs, x_aug_curr], ignore_index=True)
+                #     y_aug_curr = curr_y_train[i_train].copy()
+                #     y_train = pd.concat([y_train, y_aug_curr], ignore_index=True)
+                # x_train = pd.concat([x_train, x_train_augs], ignore_index=True)
+
                 # x_train = x_train.merge(x_general_train, left_index=True, right_index=True)
 
                 x_test = vectorizer.transform(x_test)
@@ -2402,9 +2505,17 @@ class Classifier:
 
                 l_test = [x_test]
 
+                # self.train_xlnet(x_train, y_train, s_target, epochs, batch_size, i_val_split)
+
+                col_shap = 'משנת 2012'
+                if col_shap in x_train.columns:
+                    x_train.drop(col_shap, axis=1, inplace=True)
+                if col_shap in x_test.columns:
+                    x_test.drop(col_shap, axis=1, inplace=True)
+
                 o_model.fit(x_train, y_train)
 
-                if self.b_tta:  # bt, syn, w2v, bert
+                if self.b_tta:
                     l_test_aug = list()
                     for j in range(len(self.l_x_tta)):
                         x_aug_curr = self.l_x_tta[j]
@@ -2413,7 +2524,10 @@ class Classifier:
                         df_test_aug_curr = vectorizer.transform(x_aug_curr)
                         x_test_aug_curr = pd.DataFrame(df_test_aug_curr.toarray(),
                                                        columns=vectorizer.get_feature_names_out())
-                        # x_test_aug_curr = x_test_aug_curr.merge(x_general_test, left_index=True, right_index=True)
+
+                        if col_shap in x_test_aug_curr.columns:
+                            x_test_aug_curr.drop(col_shap, axis=1, inplace=True)
+
                         l_test_aug.append(x_test_aug_curr)
 
                 y_preds = o_model.predict(x_test).reshape(-1, 1)
@@ -2435,24 +2549,44 @@ class Classifier:
                     l_test.extend(l_test_aug)
                     l_preds.extend(l_preds_aug)
                     l_probs.extend(l_probs_aug)
+                    # _preds_xlnet = list()
+                    # y_preds_xlnet = self.infer_xlnet(x_test, y_test, s_target)
+                    # l_preds_xlnet.append(y_preds_xlnet)
+                    # l_preds.extend(l_preds_xlnet)
 
-                for n in range(len(l_preds)+1):
+                for n in range(len(l_preds)+1):  # metrics update
                     if n == len(l_preds):
                         l_output = self.calculate_tta()
                         l_preds.append(l_output[0])
                         l_probs.append(l_output[1])
-                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model)
+                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train)
 
                 self.l_formula_fold = list()
                 self.f_top, self.i_top = -1, -1
                 print(f'Label: {s_target}, Done fold: {i_fold}')
 
+            for curr_model in self.l_order:
+                self.d_fold_scores[curr_model] = list()
+            df_curr_class = self.df_metrics.loc[self.df_metrics['Class'] == s_target]
+            df_curr_class.groupby(['Fold']).apply(self.apply_fold, 'AUC')
+            l_results = list()
+            for key, value in self.d_fold_scores.items():
+                l_curr_results = value
+                l_results.append(l_curr_results)
+            df_class_results = pd.DataFrame.from_dict(self.d_fold_scores, orient='columns')
+            for i in range(self.i_cv):
+                df_class_results.rename(index={i: 'Fold' + str(i)}, inplace=True)
+            self.plot(df_class_results, self.l_order, 'Sets', 'AUC' + '_' + s_target,
+                      s_model + '_' + str(self.i_cv) + '_' + 'Folds_CV')
+            self.d_fold_scores = dict()
+
             self._model.set_df_to_csv(self.df_metrics, self.df_metrics_name, self.p_output,
-                                      s_na='', b_append=True, b_header=True)
+                                      s_na='', b_append=True, b_header=True)  # writes results to output file
 
             s_top_model = self.d_top[1]
             o_top_model = self.d_top[2]
             i_top_fold = self.d_top[3]
+            print(f'Top difference score model: {s_top_model}, Top fold: {str(i_top_fold)}')
             self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top[4]
@@ -2460,13 +2594,13 @@ class Classifier:
             y_top_train = self.d_top[6]
             y_top_test = self.d_top[7]
             self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-
-            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
+            self.d_top = (float('-inf'), '', None, -1, None, None, None, None)
             self.base_score = -1
 
             s_top_model = self.d_top_auc[1]
             o_top_model = self.d_top_auc[2]
             i_top_fold = self.d_top_auc[3]
+            print(f'Top score model: {s_top_model}, Top fold: {str(i_top_fold)}')
             self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top_auc[4]
@@ -2474,14 +2608,17 @@ class Classifier:
             y_top_train = self.d_top_auc[6]
             y_top_test = self.d_top_auc[7]
             self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None)
+            self.d_top_auc = (float('-inf'), '', None, -1, None, None, None, None)
 
-            # if self.b_tta:
-            #     self.l_x_tta = copy.deepcopy(self.l_tta)
-            #     self.set_indexes(self.l_org_indexes)
+            self.df_metrics = pd.DataFrame(columns=self.l_cols_metrics)
+
+            if self.b_tta:  # resets data structures if randomization is performed for each CV
+                self.l_x_tta = copy.deepcopy(self.l_tta)
+                self.x_general = copy.deepcopy(self.general)
+                # self.set_indexes(self.l_org_indexes)  # if prior shuffle was applied
 
             # if i_target % 2 == 0:
-                # self.init()
+            # self.init()
 
     def read_csv_sample(self, p_csv, shape):
         """
@@ -2870,7 +3007,7 @@ class Classifier:
             for curr_model in self.l_order:
                 self.d_fold_scores[curr_model] = list()
             df_curr_class = self.df_metrics.loc[self.df_metrics['Class'] == s_target]
-            df_curr_class.groupby(['Fold']).apply(self.apply_fold)
+            df_curr_class.groupby(['Fold']).apply(self.apply_fold, 'AUC')
             l_results = list()
             for key, value in self.d_fold_scores.items():
                 l_curr_results = value
@@ -3120,14 +3257,18 @@ class Classifier:
         # nd_hoc1 = np.array(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'])
         # nd_hoc2 = np.array(df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
 
-        nd_hoc1 = np.array(df_friedman['Baseline'], df_friedman['TTA'])
-        nd_hoc1 = np.expand_dims(nd_hoc1, axis=1)
+        # nd_hoc1 = np.array(df_friedman['Baseline'], df_friedman['TTA'])
+        # nd_hoc1 = np.expand_dims(nd_hoc1, axis=1)
 
-        nd_hoc2 = np.array(df_friedman['TTA'], df_friedman['TTA-on-Aug'])
-        nd_hoc2 = np.expand_dims(nd_hoc2, axis=1)
+        # nd_hoc2 = np.array(df_friedman['TTA'], df_friedman['TTA-on-Aug'])
+        # nd_hoc2 = np.expand_dims(nd_hoc2, axis=1)
 
-        nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc1.T)
+        nd_hoc3 = np.array(df_friedman['Baseline'], df_friedman['TTA-on-Aug'])
+        nd_hoc3 = np.expand_dims(nd_hoc3, axis=1)
+
+        # nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc1.T)
         # nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc2.T)
+        nemenyi = sp.posthoc_nemenyi_friedman(nd_hoc3.T)
 
         print(nemenyi)
         self.plot_hoc(nemenyi)
@@ -3145,6 +3286,8 @@ class Classifier:
         :return hypothesis rejection
         """
         # stat, p_value = stats.friedmanchisquare(df_friedman['AlgorithmA'], df_friedman['AlgorithmB'], df_friedman['AlgorithmC'])
+        # stat, p_value = stats.friedmanchisquare(df_friedman['Baseline'], df_friedman['TTA'])
+        # stat, p_value = stats.friedmanchisquare(df_friedman['Baseline'], df_friedman['TTA-on-Aug'])
         stat, p_value = stats.friedmanchisquare(df_friedman['Baseline'], df_friedman['TTA'], df_friedman['TTA-on-Aug'])
         reject = p_value <= alpha
         if not reject:
@@ -3159,11 +3302,13 @@ class Classifier:
         function runs friedman statistical test with a chosen confidence level
         :return hypothesis rejection
         """
-        df_friedman = self.load_outputs()
+        df_friedman = self.load_outputs(b_stat=True)
+        if 'Fold' in df_friedman.columns:
+            df_friedman.drop(['Fold'], axis=1, inplace=True)
         print('Running Friedman Statistical Test.')
         alpha = 0.05
         reject = self.friedman_test(df_friedman, alpha)
-        print('Running Post-Hoc Test.')
+        print(f'Base Hypothesis Rejected: {str(reject)} \n Running Post-Hoc Test.')
         self.post_hoc_test(df_friedman)
 
     def init_results(self):
@@ -3750,8 +3895,8 @@ class Classifier:
         """
         # self.model_cv()  # TTA Model (Novel)
         # self.model_cv_baseline()  # Baseline Model
-        # self.model_cv_train()  # TTA-Trained-on-Augmentations Model
-        self.get_metrics_average()  # Displays Results
+        self.model_cv_train()  # TTA-Trained-on-Augmentations Model (Novel)
+        # self.get_metrics_average()  # Displays Results
         # self.model_cv_contrastive()  # Contrastive Learning Model
         # self.model_cv_active()  # Active Learning Model
         # self.statistical_test()  # Friedman Statistical Test

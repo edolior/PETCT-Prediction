@@ -118,25 +118,53 @@ class Report:
         function returns ratios of classes
         :param df_data dataset
         """
+        s_pie = False
+        # s_pie = True
         d_percentages = {}
+        d_ratios = {'A+B': '1:0.5', 'C+D': '1:1', 'E+F': '1:31', 'G': '1:13', 'H+I': '1:6', 'J': '1:6', 'K': '1:20', 'L': '1:6', 'M': '1:131', 'N': '1:18'}
+        l_names = ['1:0.5', '1:1', '1:31', '1:13', '1:6', '1:6', '1:20', '1:6', '1:131', '1:18']
+        l_ratios = []
+        l_percentages = []
         df_classes = df_data[self.l_target_cols_merged]
+        length = df_data.shape[0]
         print('Classes Counts: ')
         for curr_col in df_classes[self.l_target_cols_merged]:
             srs_numeric = pd.to_numeric(df_data[curr_col], errors='coerce')
             value = srs_numeric.sum()
-            d_percentages[curr_col] = int(value)
+            i_count = int(value)
+            i_neg = length - i_count
+            d_percentages[curr_col] = i_count
+            # d_percentages[curr_col] = [i_count, i_neg]
+            l_percentages.append([i_count, i_neg])
+            f_ratio = round(i_count/length, 2)
+            l_ratios.append(f_ratio)
         fig = plt.figure()
         fig.suptitle('Existing Classes Chart', fontsize=20)
         plt.ylabel('Count', fontsize=16)
-        plt.bar(*zip(*d_percentages.items()))
+
+        if s_pie:
+            palette_color = sns.color_palette('bright')
+            plt.pie(l_ratios, labels=self.l_target_cols_merged, colors=palette_color, autopct='%.0f%%')
+        else:
+            # df_plot = pd.DataFrame.from_dict(d_percentages, orient='columns')
+
+            # ax = sns.barplot(data=df_plot, errwidth=0)
+            # ax = sns.barplot(x=df_plot.index, y=df_plot.columns, data=df_plot, errwidth=0)
+            # for container in ax.containers:
+            #     ax.bar_label(container, )
+
+            # l_elements = list(range(1, len(l_names) + 1))
+            # plt.bar(l_elements, df_plot, tick_label=l_names)
+            # for i in range(len(df_plot)):
+            #     df_plot[i] = float("{:.3f}".format(df_plot[i]))
+            #     plt.annotate(str(df_plot[i]), xy=(l_elements[i], df_plot[i]), ha='center', va='bottom')
+
+            plt.bar(*zip(*d_percentages.items()))
+
         fig1 = plt.gcf()
         plt.show()
         plt.draw()
-
-        p_save = self.p_output + '\\' + 'classes_distribution' + '.png'
-        if self._model.b_vpn:
-            p_save = self.p_output + '/' + 'classes_distribution' + '.png'
-
+        p_save = self._model.validate_path(self.p_output, 'classes_distribution', '.png')
         fig1.savefig(p_save, dpi=600)
 
     def values_count(self, df_data):

@@ -481,6 +481,8 @@ class TextAug:
     def alephbert_apply(self, value, i):
         s_w2v = value
         top_candidate, output = None, None
+        # i_mask = 4
+        i_mask = 3
         if s_w2v != 'False' and s_w2v != '':
             s_w2v = ''
             l_w2v_terms = value.split(' ')
@@ -505,8 +507,9 @@ class TextAug:
                         continue
                     s_src = ' '.join(l_src)  # the [MASK] is the 4th token (including [CLS])
                     try:
+                        i_mask = i_term
                         output = self.m_w2v(self.m_tokenizer.encode(s_src, return_tensors='pt'))  # ABG V2
-                        top_candidates = torch.topk(output.logits[0, 4, :], i_top)[1]  # should print ספר / הספר / כנסת
+                        top_candidates = torch.topk(output.logits[0, i_mask, :], i_top)[1]  # should print ספר / הספר / כנסת
                     except (IndexError, RuntimeError) as e:  # index 4 is out of bounds for dimension 1 with size 4
                         print('Error:' + str(e))
                         self.d_errors[i] = str(e)
@@ -531,6 +534,65 @@ class TextAug:
                         s_w2v += chosen_candidate + ' '
                 else:
                     s_w2v += term + ' '
+        s_w2v = self.normalize_text(s_w2v)
+        s_w2v = s_w2v.lower()
+        # print(s_w2v)
+        return s_w2v
+
+    def alephbert_apply_bi(self, value, i):
+        s_w2v = value
+        top_candidate, output = None, None
+        i_mask = 4
+        i_window = 9
+        i_start = 0
+        i_end = i_window
+        if s_w2v != 'False' and s_w2v != '':
+            s_w2v = ''
+            l_w2v_terms = value.split(' ')
+            i_length = len(l_w2v_terms)
+            i_rounds = int(i_length/i_window)
+            if i_length > 512:
+                self.d_errors[i] = f'sequence length overload 512 of {i_length} terms.'
+                return value
+            tqdm.pandas()
+            # for i_term in tqdm(range(i_window, len(l_w2v_terms), i_window)):
+            for i_term in range(i_rounds):
+                i_top = 10
+                l_src = l_w2v_terms[i_start:i_end]  # sentence = '[MASK] היום דני הלך לבית'
+                s_src = ' '.join(l_src)  # the [MASK] is the 4th token (including [CLS])
+                try:
+                    output = self.m_w2v(self.m_tokenizer.encode(s_src, return_tensors='pt'))  # ABG V2
+                    top_candidates = torch.topk(output.logits[0, i_mask, :], i_top)[1]  # should print ספר / הספר / כנסת
+                except (IndexError, RuntimeError) as e:  # index 4 is out of bounds for dimension 1 with size 4
+                    print('Error:' + str(e))
+                    self.d_errors[i] = str(e)
+                    s_w2v += s_src + ' '
+                    i_start += i_window
+                    i_end += i_window
+                    continue
+                l_candidates = self.m_tokenizer.convert_ids_to_tokens(top_candidates)
+                # print('\n'.join(l_candidates))
+                i_random = randrange(i_top)
+                chosen_candidate = l_candidates[i_random]
+                b_flag = False
+                while chosen_candidate in self.d_punc and len(l_candidates) > 0 and not b_flag:
+                    l_candidates.pop(i_random)
+                    i_top -= 1
+                    if i_top == 0:
+                        b_flag = True
+                        continue
+                    i_random = randrange(i_top)
+                    chosen_candidate = l_candidates[i_random]
+                if len(l_candidates) == 0 or b_flag:
+                    s_w2v += s_src + ' '
+                else:
+                    l_new = l_src[0:i_mask]
+                    l_new.append(chosen_candidate)
+                    l_new.extend(l_src[i_mask+1:i_window])
+                    s_new = ' '.join(l_new)
+                    s_w2v += s_new + ' '
+                i_start += i_window
+                i_end += i_window
         s_w2v = self.normalize_text(s_w2v)
         s_w2v = s_w2v.lower()
         # print(s_w2v)
@@ -1468,11 +1530,13 @@ class TextAug:
                 if not df_curr_chunk.empty and i >= i_next_chunk:
                     s_curr_to_alephbert = df_curr_chunk[col_key].copy()
                     s_curr_to_alephbert = s_curr_to_alephbert.fillna(value='')
-                    s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.alephbert_apply, i=i)
+                    # s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.alephbert_apply, i=i)
+                    s_curr_alephbert = s_curr_to_alephbert.progress_apply(self.alephbert_apply_bi, i=i)
                     df_curr_alpehbert = pd.DataFrame(df_curr_chunk['CaseID'], columns=['CaseID'])
                     df_curr_alpehbert = df_curr_alpehbert.merge(s_curr_alephbert, left_index=True, right_index=True)
                     self._model.set_df_to_csv(df_curr_alpehbert, alephbert_col_name, self.p_tta, s_na='', b_append=True, b_header=False)
                 i += 1
+        self._model.set_dict_to_csv(self.d_errors, 'log_abg', self.p_output)
         print(f'Finished generating AlephBertGimmel Augmentation {alephbert_col_name} File, with {self.i_invalid} invalid terms.')
 
     def generate_aug(self):
@@ -1495,5 +1559,5 @@ class TextAug:
         # self.aug_w2v(s_text, 'bert')
         # self.aug_umls(s_text, 'umls')
         # self.aug_hebrew_synonym(s_text, 'synonymheb2')
-        # self.aug_alephbert(s_text, 'alephbert')
+        self.aug_alephbert(s_text, 'alephbertgimmel')
         print(f'Done Augmentations.')
