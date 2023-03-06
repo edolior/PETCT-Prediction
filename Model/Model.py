@@ -633,10 +633,10 @@ class Model:
         if self.b_processing:
             self.run_parser_processing()
         else:
-            # self.run_parser()
-            # self.run_preprocess()
-            # self.run_report()
-            # self.run_text_aug()
+            self.run_parser()
+            self.run_preprocess()
+            self.run_report()
+            self.run_text_aug()
             self.run_classifier()
             # self.run_fairness()
             # self.run_explainer()

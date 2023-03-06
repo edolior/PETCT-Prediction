@@ -1855,8 +1855,8 @@ class Classifier:
         # s_file = 'results_final_baseline_tta_with_augs'
         # s_file = 'results_final_tta_vs_train'
         # s_file = 'results_final_baseline_tta_aug_ttatrain'
-        s_file = 'results_final_baseline_ttatrain_with_augs'
         # s_file = 'results_final_baseline_ttatrain'
+        s_file = 'results_final_baseline_ttatrain_with_augs'
 
         s_file1 = 'TTTA_best_diff'
         s_file2 = 'TTTA-TA'
@@ -2506,12 +2506,6 @@ class Classifier:
                 l_test = [x_test]
 
                 # self.train_xlnet(x_train, y_train, s_target, epochs, batch_size, i_val_split)
-
-                col_shap = 'משנת 2012'
-                if col_shap in x_train.columns:
-                    x_train.drop(col_shap, axis=1, inplace=True)
-                if col_shap in x_test.columns:
-                    x_test.drop(col_shap, axis=1, inplace=True)
 
                 o_model.fit(x_train, y_train)
 
