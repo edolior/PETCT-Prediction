@@ -57,8 +57,8 @@ class Report:
             l_cols_demographic = ['Age', 'Gender', 'HealthCare', 'Unit', 'ServiceHistory', 'Service']
             l_cols_settings = ['Timestamp', 'VariableAmount', 'VariableLocation', 'VariableRange', 'GlucoseLevel',
                                'TestStartTime', 'TestSetting']
-            l_cols_features = ['BreastArmPit', 'Chest', 'Lung', 'ChestLung', 'HeadNeck', 'SkeletonTissue', 'StomachPelvis',
-                               'ArrivalReason', 'Summary']
+            l_cols_features = ['BreastArmPit', 'Chest', 'Lung', 'ChestLung', 'HeadNeck', 'SkeletonTissue',
+                               'StomachPelvis', 'ArrivalReason', 'Summary']
             l_iterations = [l_cols_demographic, l_cols_settings, l_cols_features]
         else:
             l_iterations = list(df_data.columns)
@@ -67,6 +67,7 @@ class Report:
             l_iterations = l_iterations[:i_stop]
             l_iterations = [l_iterations]
         fig_name = 0
+        s_type = ''
         for curr_list in l_iterations:
             d_percentages = {}
             for curr_col in df_data[curr_list]:
@@ -79,8 +80,16 @@ class Report:
                 d_percentages[curr_col] = float(formatted_perc)
                 print('%s, Data Exists: %d (%.2f%%)' % (curr_col, i_exist, perc))
             fig = plt.figure()
-            fig.suptitle('Existing Values Chart', fontsize=20)
-            plt.ylabel('Percentage Existing', fontsize=16)
+            if fig_name == 0:
+                s_type = 'Demographics'
+            elif fig_name == 1:
+                s_type = 'Examination Settings'
+            elif fig_name == 2:
+                s_type = 'Body Sectors'
+            s_fig_title = 'Existing' + ' ' + s_type
+            s_fig_y_title = 'Percentage Data'
+            fig.suptitle(s_fig_title, fontsize=20)
+            plt.ylabel(s_fig_y_title, fontsize=16)
             if len(d_percentages) > 6:
                 plt.xticks(rotation=45, ha='right')
             plt.bar(*zip(*d_percentages.items()))

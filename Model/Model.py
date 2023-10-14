@@ -5,6 +5,7 @@ from Model.Classifier import Classifier
 from Model.Fairness import Fairness
 from Model.Explainer import Explainer
 
+import sys
 import pandas as pd
 import numpy as np
 import os
@@ -18,6 +19,8 @@ from tqdm import tqdm
 
 import pickle  # with vpn
 # import pickle5 as pickle  # when no vpn
+
+np.set_printoptions(threshold=sys.maxsize)
 
 
 # ---------------------------------------------------------------------------------------
@@ -231,6 +234,7 @@ class Model:
         p_curr = parent_dir + '\\' + child_filename + '.' + extension
         if self.b_vpn:
             p_curr = parent_dir + '/' + child_filename + '.' + extension
+        return p_curr
         return p_curr
 
     def get_csv_to_df_header_only(self, curr_file, nrows=1):
@@ -615,11 +619,11 @@ class Model:
             print('Merged features file not found.')
         else:
             df_data = pd.read_csv(self.p_features_merged)
-            # self._report.data_percentage(df_data, False)
+            self._report.data_percentage(df_data, False)
             self._report.class_count(df_data)
-            # self._report.get_ratios()
-            # self._report.analysis(df_data)
-            # self.get_dimensions()
+            self._report.get_ratios()
+            self._report.analysis(df_data)
+            self.get_dimensions()
   
     def run(self):  # MAIN FLOW
         """
@@ -633,10 +637,10 @@ class Model:
         if self.b_processing:
             self.run_parser_processing()
         else:
-            self.run_parser()
-            self.run_preprocess()
-            self.run_report()
-            self.run_text_aug()
+            # self.run_parser()
+            # self.run_preprocess()
+            # self.run_report()
+            # self.run_text_aug()
             self.run_classifier()
             # self.run_fairness()
             # self.run_explainer()

@@ -1,5 +1,6 @@
 from Model.Report import Report
 import os
+import sys
 import pandas as pd
 import numpy as np
 from numpy import sort
@@ -84,6 +85,8 @@ from skimage.transform import resize
 import nibabel as nib
 from modAL import ActiveLearner
 from modAL.uncertainty import uncertainty_sampling
+
+np.set_printoptions(threshold=sys.maxsize)
 
 
 # ---------------------------------------------------------------------------------------
@@ -219,12 +222,16 @@ class Classifier:
         # self.i_cv = 3
         # self.i_cv = 2
 
+        # self.i_sample = 100
+        # self.i_sample = 50
+        self.i_sample = 20
+
         # self.s_metric = 'PRAUC'
         self.s_metric = 'AUC'
         self.threshold_score_probs = None
         self.i_top, self.f_top = -1, -1
-        self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
-        self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None)
+        self.d_top = (float('-inf'), '', None,  -1, None, None, None, None, None)
+        self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None, None)
         self.base_score = -1
 
         # lists #
@@ -252,8 +259,8 @@ class Classifier:
         # self.l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'xlnet', 'umls', 'TTAEnsemble']
         self.l_order = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'alephbertgimmel', 'TTAEnsemble']
 
-
         self.l_formula_fold = list()
+        self.l_save_fold_augs = list()
 
         # self.l_type_models = ['Baseline', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTTA']
         self.l_type_models = ['Baseline', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTA_AlephBERTGimmel', 'TTTA']
@@ -292,8 +299,9 @@ class Classifier:
 
         self.l_org_indexes = list()
 
-        # self.l_types = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'TTAEnsemble']
         self.l_types = ['original', 'backtrans', 'synonymheb', 'w2v', 'bert', 'alephbertgimmel', 'TTAEnsemble']
+        self.l_types_title_tta = ['Baseline', 'TTA_BackTranslation', 'TTA_Synonym', 'TTA_Word2Vec', 'TTA_BERT', 'TTA_AlephBERTGimmel', 'TTTA']
+        self.l_type_models_tta_train = ['TA_Baseline', 'TTA-TA_BackTranslation', 'TTA-TA_Synonym', 'TTA-TA_Word2Vec', 'TTA-TA_BERT', 'TTA-TA_AlephBERTGimmel', 'TTTA-TA']
 
         # dictionaries #
         self.d_datasets = dict()
@@ -312,7 +320,7 @@ class Classifier:
 
         # dataframes #
         self.l_cols_metrics = ['Model', 'Class', 'Fold', 'Train', 'Test', 'TestAcc', 'AUC', 'Precision', 'Recall', 'F1',
-                               'PRAUC', 'Preds', 'Proba', 'YTest']
+                               'PRAUC', 'Preds', 'Proba', 'YTest', 'itrain', 'i_test']
         self.l_cols_cm = [0, 1, 'Model', 'Class', 'Train', 'Test']
         self.l_cols_configs = ['Model',  'x_train', 'x_test', 'y_train', 'y_test']
         self.l_cols_stacking = ['Class', 'Fold', 'Model', 'Test', 'AVG_Model', 'AVG_All']
@@ -514,22 +522,167 @@ class Classifier:
         y_preds = self.m_xlnet.predict(inp_tok, verbose=True)
         return y_preds
 
-    def plot_metrics(self, y_preds, y_test):
+    def apply_class(self, df_curr_class, curr_aug_type):
+        df_curr_class.groupby([curr_aug_type]).apply(self.apply_aug, curr_aug_type)
+
+    def apply_aug(self, df_curr_aug, curr_aug_type):
+        curr_y_test = df_curr_aug['YTest']
+        curr_y_probs = df_curr_aug['Probs']
+        curr_y_preds = df_curr_aug['Preds']
+        fpr, tpr, thresholds = roc_curve(curr_y_test, curr_y_probs)
+        curr_auc = round(roc_auc_score(curr_y_test, curr_y_probs), 3)
+        plt.plot(fpr, tpr, label=f'{curr_aug_type}, AUC={curr_auc}')
+        # print(f'Class {s_curr_class} updated {curr_aug_type} data.')
+
+    def plot_metrics_multi(self):
+        s_dir_results = 'results'
+        s_dir_tta = 'results_final_xgb_tta'
+        s_dir_tta_ta = 'results_final_xgb_tta_ta'
+        d_folds_diff_tta = {'A+B': 0, 'C+D': 0, 'E+F': 4, 'G': 2, 'H+I': 4, 'J': 4, 'K': 3, 'L': 1, 'M': 1, 'N': 1}
+        d_folds_top_tta = {'A+B': 1, 'C+D': 3, 'E+F': 4, 'G': 2, 'H+I': 1, 'J': 0, 'K': 0, 'L': 0, 'M': 0, 'N': 4}
+        d_folds_diff_tta_ta = {'A+B': 0, 'C+D': 4, 'E+F': 4, 'G': 2, 'H+I': 4, 'J': 1, 'K': 3, 'L': 1, 'M': 1, 'N': 1}
+        d_folds_top_tta_ta = {'A+B': 1, 'C+D': 3, 'E+F': 4, 'G': 3, 'H+I': 1, 'J': 0, 'K': 0, 'L': 1, 'M': 3, 'N': 2}
+        d_augs = {'backtrans': None, 'synonymheb': None, 'w2v': None, 'bert': None, 'alephbertgimmel': None}
+        p_parent = self._model.set_dir_get_path(self.p_output, s_dir_results)
+        p_load_tta = self._model.validate_path(p_parent, s_dir_tta, 'csv')
+        p_load_tta_ta = self._model.validate_path(p_parent, s_dir_tta_ta, 'csv')
+        df_curr_tta = pd.read_csv(p_load_tta)
+        df_curr_tta_ta = pd.read_csv(p_load_tta_ta)
+
+        for s_curr_class in self.l_targets_merged:
+            plt.figure(0).clf()
+
+            # df_curr_class_tta = df_curr_tta.groupby(s_curr_class)
+            # df_curr_class_tta_ta = df_curr_tta_ta.groupby(s_curr_class)
+
+            df_curr_class_tta = df_curr_tta[df_curr_tta['Class'] == s_curr_class]
+            df_curr_class_tta_ta = df_curr_tta_ta[df_curr_tta_ta['Class'] == s_curr_class]
+
+            for i in range(len(self.l_types)):
+                curr_aug_type_df = self.l_types[i]
+
+                if curr_aug_type_df in d_augs:
+                    continue
+
+                s_experiment_tta = df_curr_tta['Model'].iloc[0]
+                curr_aug_type_title_tta = self.l_types_title_tta[i]
+
+                s_experiment_tta_ta = df_curr_tta_ta['Model'].iloc[0]
+                curr_aug_type_title_tta_ta = self.l_type_models_tta_train[i]
+
+                df_group_aug_all_tta = df_curr_class_tta[df_curr_class_tta['Test'] == curr_aug_type_df]
+                df_group_aug_all_tta_ta = df_curr_class_tta_ta[df_curr_class_tta_ta['Test'] == curr_aug_type_df]
+
+                best_fold_tta = d_folds_diff_tta[s_curr_class]  # TTA
+                df_group_aug_fold_tta = df_group_aug_all_tta[df_group_aug_all_tta['Fold'] == str(best_fold_tta)]
+
+                df_group_aug_fold_tta['YTest'] = df_group_aug_fold_tta['YTest'].str.replace("'", '')
+                df_group_aug_fold_tta['YTest'] = df_group_aug_fold_tta['YTest'].str.replace("\n", '')
+                df_group_aug_fold_tta['YTest'] = df_group_aug_fold_tta['YTest'].str.replace("[", '')
+                df_group_aug_fold_tta['YTest'] = df_group_aug_fold_tta['YTest'].str.replace("]", '')
+                l_s_curr_y_test = df_group_aug_fold_tta['YTest'].iloc[0].split(' ')
+                l_curr_y_test = [int(x) for x in l_s_curr_y_test]
+                curr_y_test = np.array(l_curr_y_test)
+
+                df_group_aug_fold_tta['Proba'] = df_group_aug_fold_tta['Proba'].str.replace("'", '')
+                df_group_aug_fold_tta['Proba'] = df_group_aug_fold_tta['Proba'].str.replace("\n", '')
+                df_group_aug_fold_tta['Proba'] = df_group_aug_fold_tta['Proba'].str.replace("[", '')
+                df_group_aug_fold_tta['Proba'] = df_group_aug_fold_tta['Proba'].str.replace("]", '')
+                l_s_curr_y_probs = df_group_aug_fold_tta['Proba'].iloc[0].split(' ')
+                l_curr_y_probs = [float(x) for x in l_s_curr_y_probs]
+                curr_y_probs = np.array(l_curr_y_probs)
+
+                fpr, tpr, thresholds = roc_curve(curr_y_test, curr_y_probs)
+                curr_auc = round(roc_auc_score(curr_y_test, curr_y_probs), 3)
+                # curr_results_title = s_experiment_tta + ' ' + curr_aug_type_title_tta
+                plt.plot(fpr, tpr, label=f'{curr_aug_type_title_tta}, AUC={curr_auc}')
+                print(f'Class {s_curr_class} updated {curr_aug_type_title_tta} data.')
+
+                best_fold_tta_ta = d_folds_diff_tta_ta[s_curr_class]  # TTA-TA
+                df_group_aug_fold_tta_ta = df_group_aug_all_tta_ta[df_group_aug_all_tta_ta['Fold'] == str(best_fold_tta_ta)]
+
+                df_group_aug_fold_tta_ta['YTest'] = df_group_aug_fold_tta_ta['YTest'].str.replace("'", '')
+                df_group_aug_fold_tta_ta['YTest'] = df_group_aug_fold_tta_ta['YTest'].str.replace("\n", '')
+                df_group_aug_fold_tta_ta['YTest'] = df_group_aug_fold_tta_ta['YTest'].str.replace("[", '')
+                df_group_aug_fold_tta_ta['YTest'] = df_group_aug_fold_tta_ta['YTest'].str.replace("]", '')
+                l_s_curr_y_test = df_group_aug_fold_tta_ta['YTest'].iloc[0].split(' ')
+                l_curr_y_test = [int(x) for x in l_s_curr_y_test]
+                curr_y_test = np.array(l_curr_y_test)
+
+                df_group_aug_fold_tta_ta['Proba'] = df_group_aug_fold_tta_ta['Proba'].str.replace("'", '')
+                df_group_aug_fold_tta_ta['Proba'] = df_group_aug_fold_tta_ta['Proba'].str.replace("\n", '')
+                df_group_aug_fold_tta_ta['Proba'] = df_group_aug_fold_tta_ta['Proba'].str.replace("[", '')
+                df_group_aug_fold_tta_ta['Proba'] = df_group_aug_fold_tta_ta['Proba'].str.replace("]", '')
+                l_s_curr_y_probs = df_group_aug_fold_tta_ta['Proba'].iloc[0].split(' ')
+                l_curr_y_probs = [float(x) for x in l_s_curr_y_probs]
+                curr_y_probs = np.array(l_curr_y_probs)
+
+                fpr, tpr, thresholds = roc_curve(curr_y_test, curr_y_probs)
+                curr_auc = round(roc_auc_score(curr_y_test, curr_y_probs), 3)
+                # curr_results_title = s_experiment_tta_ta + ' ' + curr_aug_type_title_tta_ta
+                plt.plot(fpr, tpr, label=f'{curr_aug_type_title_tta_ta}, AUC={curr_auc}')
+                print(f'Class {s_curr_class} updated {curr_aug_type_title_tta_ta} data.')
+
+            s_title = f'{s_curr_class} XGBOOST ROC-AUC Baseline, TTA & TTA-TA Graph'
+            plt.title(s_title)
+            plt.xlabel('FPR')
+            plt.ylabel('TPR')
+            plt.legend(loc="lower right")
+            self.save_plot(plt, s_title)
+            plt.show()
+
+    def plot_metrics(self, y_test=None, y_preds=None, y_probs=None, s_model=None, i_fold=None):
         """
         function calculates and plots xlnet results
         :param y_preds
         :param y_test
         """
-        acc = accuracy_score(y_test, np.array(y_preds.flatten() >= .5, dtype='int'))
-        fpr, tpr, thresholds = roc_curve(y_test, y_preds)
-        auc = roc_auc_score(y_test, y_preds)
-        fig, ax = plt.subplots(1, figsize=(8, 8))
-        ax.plot(fpr, tpr, color='red')
-        ax.plot([0, 1], [0, 1], color='black', linestyle='--')
-        s_title = f'AUC: {auc}'
-        ax.set_title(s_title)
-        ax.show()
-        self.save_plot(fig, s_title)
+        if y_preds is None:
+            # s_dir_results = 'results'
+            # s_dir = 'abg'
+            # s_file = 'abg-v2'
+            # s_fold = '0'
+            # s_target = 'A+B'
+            # p_parent = self._model.set_dir_get_path(self.p_output, s_dir_results)
+            # p_results = self._model.set_dir_get_path(p_parent, s_dir)
+            # p_load = self._model.validate_path(p_results, s_file, 'csv')
+            # df_results = pd.read_csv(p_load)
+            # df_class_results = df_results[df_results['Class'] == s_target]
+            # df_class_fold_results = df_class_results[df_class_results['Fold'] == s_fold]
+            # np_test = df_class_fold_results['YTest'].values
+            # srs_preds = df_results['Preds'].values
+            # y_preds = srs_preds.to_numpy(dtype=float)
+
+            plt.figure(0).clf()
+
+            for i in range(len(self.l_save_fold_augs)):
+                curr_preds = self.l_save_fold_augs[i][0]
+                curr_probs = self.l_save_fold_augs[i][1]
+                curr_aug = self.l_types_title_tta[i]
+                # curr_aug = self.l_types_title_tta_train[i]
+                fpr, tpr, thresholds = roc_curve(y_test, curr_probs)
+                curr_auc = round(roc_auc_score(y_test, curr_probs), 3)
+                plt.plot(fpr, tpr, label=f'{curr_aug}, AUC={curr_auc}')
+
+            s_title = f'{s_model} ROC-AUC Graph Fold {i_fold}'
+            plt.title(s_title)
+            plt.xlabel('FPR')
+            plt.ylabel('TPR')
+            plt.legend(loc="lower right")
+            self.save_plot(plt, s_title)
+            plt.show()
+        else:
+            acc = accuracy_score(y_test, np.array(y_preds.flatten() >= .5, dtype='int'))
+            fpr, tpr, thresholds = roc_curve(y_test, y_probs)
+            auc = roc_auc_score(y_test, y_probs)
+            fig, ax = plt.subplots(1, figsize=(8, 8))
+            ax.plot(fpr, tpr, color='red')
+            ax.plot([0, 1], [0, 1], color='black', linestyle='--')
+            s_title = f'ROC-AUC: {auc}'
+            ax.set_title(s_title)
+            self.save_plot(fig, s_title)
+            ax.show()
+        plt.clf()
 
     def remove_sparse_features(self, f_threshold_na, d_remove):
         """
@@ -602,7 +755,7 @@ class Classifier:
             net_gpu = tf.keras.layers.Conv2D(32, 7)(random_image_gpu)
             return tf.math.reduce_sum(net_gpu)
 
-    def save_configs(self, s_model, x_train, x_test, y_train, y_test):
+    def save_configs(self, s_model, x_train, x_test, y_train, y_test, y_preds, i_fold):
         """
         function saves sets to disk
         :param s_model
@@ -615,10 +768,22 @@ class Classifier:
         # df_configs = pd.DataFrame.from_dict(d_configs, orient='index').T
         # self.df_configs = pd.concat([self.df_configs, df_configs], ignore_index=True, sort=False)
         # self._model.set_df_to_csv(self.df_configs, s_model, self.p_models, s_na='', b_append=False, b_header=True)
-        self._model.set_df_to_csv(x_train, s_model+'_'+'x_train', self.p_models, s_na='', b_append=False, b_header=True)
-        self._model.set_df_to_csv(x_test, s_model+'_'+'x_test', self.p_models, s_na='', b_append=False, b_header=True)
-        self._model.set_df_to_csv(y_train, s_model+'_'+'y_train', self.p_models, s_na='', b_append=False, b_header=True)
-        self._model.set_df_to_csv(y_test, s_model+'_'+'y_test', self.p_models, s_na='', b_append=False, b_header=True)
+
+        x_train['index'] = x_train.index
+        x_test['index'] = x_test.index
+        y_train['index'] = y_train.index
+        y_test['index'] = y_test.index
+
+        np_y_preds = y_preds.copy()
+        srs_y_preds = pd.Series(np_y_preds.flatten())
+        df_y_preds = pd.DataFrame(columns=['index'])
+        df_y_preds['index'] = srs_y_preds
+
+        self._model.set_df_to_csv(x_train, s_model+'_'+str(i_fold)+'_'+'x_train', self.p_models, s_na='', b_append=False, b_header=True)
+        self._model.set_df_to_csv(x_test, s_model+'_'+str(i_fold)+'_'+'x_test', self.p_models, s_na='', b_append=False, b_header=True)
+        self._model.set_df_to_csv(y_train, s_model+'_'+str(i_fold)+'_'+'y_train', self.p_models, s_na='', b_append=False, b_header=True)
+        self._model.set_df_to_csv(y_test, s_model+'_'+str(i_fold)+'_'+'y_test', self.p_models, s_na='', b_append=False, b_header=True)
+        self._model.set_df_to_csv(df_y_preds, s_model+'_'+str(i_fold)+'_'+'y_preds', self.p_models, s_na='', b_append=False, b_header=True)
 
     def save_model(self, s_model, o_model, i_top_fold):
         """
@@ -684,11 +849,13 @@ class Classifier:
         """
         p_save = self._model.validate_path(self.p_plots, s_title, 'png')
 
+        fig.savefig(p_save)
+
         # if not self._model.check_file_exists(p_save):
         #     fig.savefig(p_save)
 
         # fig.savefig(p_save)
-        fig.savefig(p_save, dpi=300)
+        # fig.savefig(p_save, dpi=300)
         # fig.savefig(p_save, dpi=600)
 
     def get_stacking(self):
@@ -917,8 +1084,9 @@ class Classifier:
         p_general = self._model.validate_path(self.p_input_aug, 'x_general', 'csv')
         if self._model.check_file_exists(p_general):
             if b_sample:
-                general = self.read_csv_sample(p_general, 500)
+                general = self.read_csv_sample(p_general, self.i_sample)
             else:
+                print('Loading sample.')
                 general = pd.read_csv(p_general)
 
         else:
@@ -930,7 +1098,7 @@ class Classifier:
         if self._model.check_file_exists(p_sectors):
             # self._model.get_csv_to_df_header_only(p_sectors)
             if b_sample:
-                sectors = self.read_csv_sample(p_sectors, 500)
+                sectors = self.read_csv_sample(p_sectors, self.i_sample)
             else:
                 sectors = pd.read_csv(p_sectors)
 
@@ -939,7 +1107,7 @@ class Classifier:
         p_y = self._model.validate_path(self.p_output, 'y', 'csv')
         if self._model.check_file_exists(p_y):
             if b_sample:
-                y = self.read_csv_sample(p_y, 500)
+                y = self.read_csv_sample(p_y, self.i_sample)
             else:
                 y = pd.read_csv(p_y)
 
@@ -1548,7 +1716,7 @@ class Classifier:
             p_curr_aug = self._model.validate_path(self.p_tta, filename, 'csv')
             if self._model.check_file_exists(p_curr_aug):
                 if b_sample:
-                    df_aug = self.read_csv_sample(p_curr_aug, 500)
+                    df_aug = self.read_csv_sample(p_curr_aug, self.i_sample)
                 else:
                     df_aug = pd.read_csv(p_curr_aug)
                 df_curr_aug = pd.DataFrame(df_aug['Text'], columns=['Text'])
@@ -2362,22 +2530,24 @@ class Classifier:
             x_top_test = self.d_top[5]
             y_top_train = self.d_top[6]
             y_top_test = self.d_top[7]
-            # self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
+            y_top_diff_preds = self.d_top[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_diff_preds, i_top_fold)
+            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None, None)
             self.base_score = -1
 
             s_top_model = self.d_top_auc[1]
             o_top_model = self.d_top_auc[2]
             i_top_fold = self.d_top_auc[3]
             print(f'Top score model: {s_top_model}, Top fold: {str(i_top_fold)}')
-            # self.save_model(s_top_model, o_top_model, i_top_fold)
+            self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top_auc[4]
             x_top_test = self.d_top_auc[5]
             y_top_train = self.d_top_auc[6]
             y_top_test = self.d_top_auc[7]
-            # self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None)
+            y_top_preds = self.d_top_auc[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_preds, i_top_fold)
+            self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None, None)
 
             self.df_metrics = pd.DataFrame(columns=self.l_cols_metrics)
 
@@ -2426,8 +2596,9 @@ class Classifier:
             x_curr = x['Text'].copy()
             self.l_x_tta = copy.deepcopy(self.l_tta)
             self.x_general = copy.deepcopy(self.general)
-
             s_target = self.l_targets_merged[i_target]
+            print(f'Running on TTA-TA Model on Class: {s_target}')
+
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
             top_fold = -1
             top_score = float('-inf')  # chosen score: precision-recall auc
@@ -2451,7 +2622,10 @@ class Classifier:
 
             o_model = XGBClassifier(max_depth=_max_depth, eta=_eta, n_estimators=_n_estimators,
                                     objective='binary:logistic', random_state=9, verbosity=0, use_label_encoder=False)
-            s_model = 'XGBoost'+s_target
+            s_model = 'TTTA-TA' + '-' + 'XGBoost' + s_target
+
+            # o_model = LogisticRegression(random_state=42, solver='lbfgs', penalty='l2', max_iter=500)
+            # s_model = 'TTTA-TA' + '-' + 'LR' + s_target
 
             # self.load_xlnet()
 
@@ -2519,8 +2693,9 @@ class Classifier:
                         x_test_aug_curr = pd.DataFrame(df_test_aug_curr.toarray(),
                                                        columns=vectorizer.get_feature_names_out())
 
-                        if col_shap in x_test_aug_curr.columns:
-                            x_test_aug_curr.drop(col_shap, axis=1, inplace=True)
+                        # col_shap = ''
+                        # if col_shap in x_test_aug_curr.columns:
+                        #     x_test_aug_curr.drop(col_shap, axis=1, inplace=True)
 
                         l_test_aug.append(x_test_aug_curr)
 
@@ -2553,8 +2728,10 @@ class Classifier:
                         l_output = self.calculate_tta()
                         l_preds.append(l_output[0])
                         l_probs.append(l_output[1])
-                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train)
+                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train, i_train, i_test)
 
+                self.plot_metrics(y_test, None, None, s_model, i_fold)
+                self.l_save_fold_augs = list()
                 self.l_formula_fold = list()
                 self.f_top, self.i_top = -1, -1
                 print(f'Label: {s_target}, Done fold: {i_fold}')
@@ -2587,8 +2764,9 @@ class Classifier:
             x_top_test = self.d_top[5]
             y_top_train = self.d_top[6]
             y_top_test = self.d_top[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top = (float('-inf'), '', None, -1, None, None, None, None)
+            y_top_diff_preds = self.d_top[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_diff_preds, i_top_fold)
+            self.d_top = (float('-inf'), '', None, -1, None, None, None, None, None)
             self.base_score = -1
 
             s_top_model = self.d_top_auc[1]
@@ -2601,8 +2779,9 @@ class Classifier:
             x_top_test = self.d_top_auc[5]
             y_top_train = self.d_top_auc[6]
             y_top_test = self.d_top_auc[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top_auc = (float('-inf'), '', None, -1, None, None, None, None)
+            y_top_preds = self.d_top_auc[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_preds, i_top_fold)
+            self.d_top_auc = (float('-inf'), '', None, -1, None, None, None, None, None)
 
             self.df_metrics = pd.DataFrame(columns=self.l_cols_metrics)
 
@@ -2610,9 +2789,6 @@ class Classifier:
                 self.l_x_tta = copy.deepcopy(self.l_tta)
                 self.x_general = copy.deepcopy(self.general)
                 # self.set_indexes(self.l_org_indexes)  # if prior shuffle was applied
-
-            # if i_target % 2 == 0:
-            # self.init()
 
     def read_csv_sample(self, p_csv, shape):
         """
@@ -2728,7 +2904,15 @@ class Classifier:
         x = pd.DataFrame(x.toarray(), columns=feature_names)
         self.optimize_model(x, y, p_params)
 
-    def update_metrics(self, y_test, y_preds, y_probs, s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train):
+    def np_to_df(self, y_arr):
+        np_arr = y_arr.copy()
+        srs_arr = pd.Series(np_arr.flatten())
+        df_arr = pd.DataFrame(columns=['index'])
+        df_arr['index'] = srs_arr
+        df_arr['index'] = df_arr['index'].apply(lambda x: str(x).replace('\n', ''))
+        return df_arr
+
+    def update_metrics(self, y_test, y_preds, y_probs, s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train, i_train, i_test):
         """
         function calculates evaluation criteria
         :param y_test
@@ -2747,7 +2931,9 @@ class Classifier:
             recall = round(recall_score(y_test, y_preds), 3)
             f1 = round(f1_score(y_test, y_preds), 3)
 
-        fpr, tpr, threshold_curve = roc_curve(y_test, y_preds)
+        # fpr, tpr, threshold_curve = roc_curve(y_test, y_preds)
+        fpr, tpr, threshold_curve = roc_curve(y_test, y_probs)
+
         auc_score = round(roc_auc_score(y_test, y_probs), 3)
         arr_precision, arr_recall, threshold_pr_auc = precision_recall_curve(y_test, y_probs)
         pr_auc_score = round(auc(arr_recall, arr_precision), 3)
@@ -2769,15 +2955,38 @@ class Classifier:
                 curr_top_auc = self.d_top_auc[0]
                 curr_diff = auc_score - self.base_score
                 if curr_diff > curr_top:
-                    self.d_top = (curr_diff, s_target+'_'+'diff'+'_'+str(i_fold), o_model, i_fold, x_train, x_test, y_train, y_test)
+                    self.d_top = (curr_diff, s_target+'_'+'diff'+'_'+str(i_fold), o_model, i_fold, x_train, x_test, y_train, y_test, y_preds)
                 if auc_score > curr_top_auc:
-                    self.d_top_auc = (auc_score, s_target+'_'+'top'+'_'+str(i_fold), o_model, i_fold, x_train, x_test, y_train, y_test)
+                    self.d_top_auc = (auc_score, s_target+'_'+'top'+'_'+str(i_fold), o_model, i_fold, x_train, x_test, y_train, y_test, y_preds)
+
+                y_probs_round = np.round(y_probs)
+                # y_probs_round = np.ceil(y_probs)
+                # y_probs_round = [0 if i < 0.5 else 1 for i in y_probs]
+
+                acc_test = round(accuracy_score(y_test, y_probs_round), 3)
+                # precision = round(precision_score(y_test, y_probs_round), 3)
+                # recall = round(recall_score(y_test, y_probs_round), 3)
+                f1 = round(f1_score(y_test, y_probs_round), 3)
+
+        self.l_save_fold_augs.append([y_preds, y_probs, self.l_types[n]])
+
+        df_preds = self.np_to_df(y_preds)
+        df_probs = self.np_to_df(y_probs)
+
+        srs_y_test = y_test.copy()
+        df_y_test = pd.DataFrame(columns=['index'])
+        df_y_test['index'] = srs_y_test
+        df_y_test['index'] = df_y_test['index'].apply(lambda x: str(x).replace('\n', ''))
+
+        df_i_train = self.np_to_df(i_train)
+        df_i_test = self.np_to_df(i_test)
 
         d_fold_metrics = {'Model': s_model, 'Class': s_target, 'Fold': i_fold,  # writes results
                           'Train': self.l_types[0], 'Test': self.l_types[n],
                           'TestAcc': acc_test, 'AUC': auc_score,
                           'Precision': precision, 'Recall': recall, 'F1': f1, 'PRAUC': pr_auc_score,
-                          'Preds': [y_preds], 'Proba': [y_probs], 'YTest': [y_test]}
+                          'Preds': df_preds['index'].values, 'Proba': df_probs['index'].values, 'YTest': df_y_test['index'].values,
+                          'itrain': df_i_train['index'].values, 'i_test': df_i_test['index'].values}
 
         df_fold_metrics = pd.DataFrame.from_dict(d_fold_metrics, orient='index').T
         self.df_metrics = pd.concat([self.df_metrics, df_fold_metrics], ignore_index=True, sort=False)
@@ -2899,8 +3108,9 @@ class Classifier:
             x_curr = x['Text'].copy()
             self.l_x_tta = copy.deepcopy(self.l_tta)
             self.x_general = copy.deepcopy(self.general)
-
             s_target = self.l_targets_merged[i_target]
+            print(f'Running TTA Model on Class: {s_target}')
+
             k_outer = StratifiedKFold(n_splits=self.i_cv, random_state=9, shuffle=True)
             top_fold = -1
             top_score = float('-inf')  # chosen score: precision-recall auc
@@ -2924,7 +3134,10 @@ class Classifier:
 
             o_model = XGBClassifier(max_depth=_max_depth, eta=_eta, n_estimators=_n_estimators,
                                     objective='binary:logistic', random_state=9, verbosity=0, use_label_encoder=False)
-            s_model = 'XGBoost'+s_target
+            s_model = 'TTTA' + '-' + 'XGBoost' + s_target
+
+            # o_model = LogisticRegression(random_state=24, solver='lbfgs', penalty='l2', max_iter=500)
+            # s_model = 'TTTA' + '-' + 'LR' + s_target
 
             # self.load_xlnet()
 
@@ -2992,8 +3205,10 @@ class Classifier:
                         l_output = self.calculate_tta()
                         l_preds.append(l_output[0])
                         l_probs.append(l_output[1])
-                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train)
+                    self.update_metrics(y_test, l_preds[n], l_probs[n], s_model, s_target, i_fold, n, o_model, x_train, x_test, y_train, i_train, i_test)
 
+                self.plot_metrics(y_test, None, None, s_model, i_fold)
+                self.l_save_fold_augs = list()
                 self.l_formula_fold = list()
                 self.f_top, self.i_top = -1, -1
                 print(f'Label: {s_target}, Done fold: {i_fold}')
@@ -3018,27 +3233,31 @@ class Classifier:
             s_top_model = self.d_top[1]
             o_top_model = self.d_top[2]
             i_top_fold = self.d_top[3]
+            print(f'Top difference score model: {s_top_model}, Top fold: {str(i_top_fold)}')
             self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top[4]
             x_top_test = self.d_top[5]
             y_top_train = self.d_top[6]
             y_top_test = self.d_top[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None)
+            y_top_diff_preds = self.d_top[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_diff_preds, i_top_fold)
+            self.d_top = (float('-inf'), '', None,  -1, None, None, None, None, None)
             self.base_score = -1
 
             s_top_model = self.d_top_auc[1]
             o_top_model = self.d_top_auc[2]
             i_top_fold = self.d_top_auc[3]
+            print(f'Top score model: {s_top_model}, Top fold: {str(i_top_fold)}')
             self.save_model(s_top_model, o_top_model, i_top_fold)
 
             x_top_train = self.d_top_auc[4]
             x_top_test = self.d_top_auc[5]
             y_top_train = self.d_top_auc[6]
             y_top_test = self.d_top_auc[7]
-            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test)
-            self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None)
+            y_top_preds = self.d_top_auc[8]
+            self.save_configs(s_top_model, x_top_train, x_top_test, y_top_train, y_top_test, y_top_preds, i_top_fold)
+            self.d_top_auc = (float('-inf'), '', None,  -1, None, None, None, None, None)
 
             self.df_metrics = pd.DataFrame(columns=self.l_cols_metrics)
 
@@ -3046,9 +3265,6 @@ class Classifier:
                 self.l_x_tta = copy.deepcopy(self.l_tta)
                 self.x_general = copy.deepcopy(self.general)
                 # self.set_indexes(self.l_org_indexes)  # if prior shuffle was applied
-
-            # if i_target % 2 == 0:
-                # self.init()
 
     @staticmethod
     def init_model_image(height, width, dim, x, b_contrastive, i_classes=2):
@@ -3888,10 +4104,11 @@ class Classifier:
         main function: runs all experiments
         """
         # self.model_cv()  # TTA Model (Novel)
-        # self.model_cv_baseline()  # Baseline Model
         self.model_cv_train()  # TTA-Trained-on-Augmentations Model (Novel)
+        # self.model_cv_baseline()  # Baseline Model
         # self.get_metrics_average()  # Displays Results
         # self.model_cv_contrastive()  # Contrastive Learning Model
         # self.model_cv_active()  # Active Learning Model
         # self.statistical_test()  # Friedman Statistical Test
+        # self.plot_metrics_multi()
         print(f'Done training and testing models.')
